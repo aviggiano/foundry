@@ -263,6 +263,8 @@ impl TargetedContract {
 pub struct InvariantContract<'a> {
     /// Address of the test contract.
     pub address: Address,
+    /// Identifier of the test contract.
+    pub identifier: String,
     /// Invariant function present in the test contract.
     pub invariant_function: &'a Function,
     /// If true, `afterInvariant` function is called after each invariant run.
@@ -274,12 +276,19 @@ pub struct InvariantContract<'a> {
 impl<'a> InvariantContract<'a> {
     /// Creates a new invariant contract.
     pub fn new(
+        identifier: impl Into<String>,
         address: Address,
         invariant_function: &'a Function,
         call_after_invariant: bool,
         abi: &'a JsonAbi,
     ) -> Self {
-        Self { address, invariant_function, call_after_invariant, abi }
+        Self {
+            address,
+            identifier: identifier.into(),
+            invariant_function,
+            call_after_invariant,
+            abi,
+        }
     }
 
     /// Returns true if this is an optimization mode invariant (returns int256).

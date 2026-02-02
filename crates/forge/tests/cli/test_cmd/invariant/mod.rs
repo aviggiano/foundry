@@ -211,31 +211,31 @@ contract AnotherCounterHandler is Test {
 ...
 [PASS] invariant_counter() (runs: 10, calls: 5000, reverts: [..])
 
-╭-----------------------+----------------+-------+---------+----------╮
-| Contract              | Selector       | Calls | Reverts | Discards |
-+=====================================================================+
-| AnotherCounterHandler | doWork         | [..]  | [..]    | [..]     |
-|-----------------------+----------------+-------+---------+----------|
-| AnotherCounterHandler | doWorkThing    | [..]  | [..]    | [..]     |
-|-----------------------+----------------+-------+---------+----------|
-| CounterHandler        | doAnotherThing | [..]  | [..]    | [..]     |
-|-----------------------+----------------+-------+---------+----------|
-| CounterHandler        | doSomething    | [..]  | [..]    | [..]     |
-╰-----------------------+----------------+-------+---------+----------╯
+╭-----------------------+----------------+-------+---------+----------+--------╮
+| Contract              | Selector       | Calls | Reverts | Discards | Failed |
++==============================================================================+
+| AnotherCounterHandler | doWork         | [..]  | [..]    | [..]     | [..]   |
+|-----------------------+----------------+-------+---------+----------+--------|
+| AnotherCounterHandler | doWorkThing    | [..]  | [..]    | [..]     | [..]   |
+|-----------------------+----------------+-------+---------+----------+--------|
+| CounterHandler        | doAnotherThing | [..]  | [..]    | [..]     | [..]   |
+|-----------------------+----------------+-------+---------+----------+--------|
+| CounterHandler        | doSomething    | [..]  | [..]    | [..]     | [..]   |
+╰-----------------------+----------------+-------+---------+----------+--------╯
 
 [PASS] invariant_counter2() (runs: 10, calls: 5000, reverts: [..])
 
-╭-----------------------+----------------+-------+---------+----------╮
-| Contract              | Selector       | Calls | Reverts | Discards |
-+=====================================================================+
-| AnotherCounterHandler | doWork         | [..]  | [..]    | [..]     |
-|-----------------------+----------------+-------+---------+----------|
-| AnotherCounterHandler | doWorkThing    | [..]  | [..]    | [..]     |
-|-----------------------+----------------+-------+---------+----------|
-| CounterHandler        | doAnotherThing | [..]  | [..]    | [..]     |
-|-----------------------+----------------+-------+---------+----------|
-| CounterHandler        | doSomething    | [..]  | [..]    | [..]     |
-╰-----------------------+----------------+-------+---------+----------╯
+╭-----------------------+----------------+-------+---------+----------+--------╮
+| Contract              | Selector       | Calls | Reverts | Discards | Failed |
++==============================================================================+
+| AnotherCounterHandler | doWork         | [..]  | [..]    | [..]     | [..]   |
+|-----------------------+----------------+-------+---------+----------+--------|
+| AnotherCounterHandler | doWorkThing    | [..]  | [..]    | [..]     | [..]   |
+|-----------------------+----------------+-------+---------+----------+--------|
+| CounterHandler        | doAnotherThing | [..]  | [..]    | [..]     | [..]   |
+|-----------------------+----------------+-------+---------+----------+--------|
+| CounterHandler        | doSomething    | [..]  | [..]    | [..]     | [..]   |
+╰-----------------------+----------------+-------+---------+----------+--------╯
 
 Suite result: ok. 2 passed; 0 failed; 0 skipped; [ELAPSED]
 
@@ -287,11 +287,11 @@ Compiler run successful!
 Ran 1 test for test/TimeoutTest.t.sol:TimeoutTest
 [PASS] invariant_counter_timeout() (runs: 0, calls: 0, reverts: 0)
 
-╭----------------+-----------+-------+---------+----------╮
-| Contract       | Selector  | Calls | Reverts | Discards |
-+=========================================================+
-| TimeoutHandler | increment | [..]  | [..]    | [..]     |
-╰----------------+-----------+-------+---------+----------╯
+╭----------------+-----------+-------+---------+----------+--------╮
+| Contract       | Selector  | Calls | Reverts | Discards | Failed |
++==================================================================+
+| TimeoutHandler | increment | [..]  | [..]    | [..]     | [..]   |
+╰----------------+-----------+-------+---------+----------+--------╯
 
 Suite result: ok. 1 passed; 0 failed; 0 skipped; [ELAPSED]
 
@@ -712,35 +712,35 @@ Compiler run successful!
 Ran 4 tests for test/InvariantTargetTest.t.sol:InvariantTargetTest
 [PASS] invariant_considered_target() (runs: 10, calls: 1000, reverts: 0)
 
-╭---------------------+----------+-------+---------+----------╮
-| Contract            | Selector | Calls | Reverts | Discards |
-+=============================================================+
-| InvariantTargetTest | foo      | 1000  | 0       | 0        |
-╰---------------------+----------+-------+---------+----------╯
+╭---------------------+----------+-------+---------+----------+--------╮
+| Contract            | Selector | Calls | Reverts | Discards | Failed |
++======================================================================+
+| InvariantTargetTest | foo      | 1000  | 0       | 0        | 0      |
+╰---------------------+----------+-------+---------+----------+--------╯
 
 [PASS] invariant_foo_called() (runs: 10, calls: 1000, reverts: 0)
 
-╭---------------------+----------+-------+---------+----------╮
-| Contract            | Selector | Calls | Reverts | Discards |
-+=============================================================+
-| InvariantTargetTest | foo      | 1000  | 0       | 0        |
-╰---------------------+----------+-------+---------+----------╯
+╭---------------------+----------+-------+---------+----------+--------╮
+| Contract            | Selector | Calls | Reverts | Discards | Failed |
++======================================================================+
+| InvariantTargetTest | foo      | 1000  | 0       | 0        | 0      |
+╰---------------------+----------+-------+---------+----------+--------╯
 
 [PASS] invariant_setUp_considered_target() (runs: 10, calls: 1000, reverts: 0)
 
-╭---------------------+----------+-------+---------+----------╮
-| Contract            | Selector | Calls | Reverts | Discards |
-+=============================================================+
-| InvariantTargetTest | foo      | 1000  | 0       | 0        |
-╰---------------------+----------+-------+---------+----------╯
+╭---------------------+----------+-------+---------+----------+--------╮
+| Contract            | Selector | Calls | Reverts | Discards | Failed |
++======================================================================+
+| InvariantTargetTest | foo      | 1000  | 0       | 0        | 0      |
+╰---------------------+----------+-------+---------+----------+--------╯
 
 [PASS] invariant_testSanity_considered_target() (runs: 10, calls: 1000, reverts: 0)
 
-╭---------------------+----------+-------+---------+----------╮
-| Contract            | Selector | Calls | Reverts | Discards |
-+=============================================================+
-| InvariantTargetTest | foo      | 1000  | 0       | 0        |
-╰---------------------+----------+-------+---------+----------╯
+╭---------------------+----------+-------+---------+----------+--------╮
+| Contract            | Selector | Calls | Reverts | Discards | Failed |
++======================================================================+
+| InvariantTargetTest | foo      | 1000  | 0       | 0        | 0      |
+╰---------------------+----------+-------+---------+----------+--------╯
 
 Suite result: ok. 4 passed; 0 failed; 0 skipped; [ELAPSED]
 
@@ -834,13 +834,13 @@ Compiler run successful!
 Ran 1 test for test/InvariantTargetTest.t.sol:InvariantTargetIncludeTest
 [PASS] invariant_include() (runs: 10, calls: 1000, reverts: 0)
 
-╭----------------------------+----------------+-------+---------+----------╮
-| Contract                   | Selector       | Calls | Reverts | Discards |
-+==========================================================================+
-| InvariantTargetIncludeTest | shouldInclude1 | [..]   | 0       | 0        |
-|----------------------------+----------------+-------+---------+----------|
-| InvariantTargetIncludeTest | shouldInclude2 | [..]   | 0       | 0        |
-╰----------------------------+----------------+-------+---------+----------╯
+╭----------------------------+----------------+-------+---------+----------+--------╮
+| Contract                   | Selector       | Calls | Reverts | Discards | Failed |
++===================================================================================+
+| InvariantTargetIncludeTest | shouldInclude1 | [..]   | 0       | 0        | 0      |
+|----------------------------+----------------+-------+---------+----------+--------|
+| InvariantTargetIncludeTest | shouldInclude2 | [..]   | 0       | 0        | 0      |
+╰----------------------------+----------------+-------+---------+----------+--------╯
 
 Suite result: ok. 1 passed; 0 failed; 0 skipped; [ELAPSED]
 
@@ -855,13 +855,13 @@ No files changed, compilation skipped
 Ran 1 test for test/InvariantTargetTest.t.sol:InvariantTargetExcludeTest
 [PASS] invariant_exclude() (runs: 10, calls: 1000, reverts: 0)
 
-╭----------------------------+----------------+-------+---------+----------╮
-| Contract                   | Selector       | Calls | Reverts | Discards |
-+==========================================================================+
-| InvariantTargetExcludeTest | shouldInclude1 | [..]   | 0       | 0        |
-|----------------------------+----------------+-------+---------+----------|
-| InvariantTargetExcludeTest | shouldInclude2 | [..]   | 0       | 0        |
-╰----------------------------+----------------+-------+---------+----------╯
+╭----------------------------+----------------+-------+---------+----------+--------╮
+| Contract                   | Selector       | Calls | Reverts | Discards | Failed |
++===================================================================================+
+| InvariantTargetExcludeTest | shouldInclude1 | [..]   | 0       | 0        | 0      |
+|----------------------------+----------------+-------+---------+----------+--------|
+| InvariantTargetExcludeTest | shouldInclude2 | [..]   | 0       | 0        | 0      |
+╰----------------------------+----------------+-------+---------+----------+--------╯
 
 Suite result: ok. 1 passed; 0 failed; 0 skipped; [ELAPSED]
 
@@ -879,10 +879,10 @@ No files changed, compilation skipped
 Ran 1 test for test/InvariantTargetTest.t.sol:InvariantTargetIncludeTest
 [PASS] invariant_include() (runs: 10, calls: 1000, reverts: 0)
 
-| Contract                   | Selector       | Calls | Reverts | Discards |
-|----------------------------|----------------|-------|---------|----------|
-| InvariantTargetIncludeTest | shouldInclude1 | [..]   | 0       | 0        |
-| InvariantTargetIncludeTest | shouldInclude2 | [..]   | 0       | 0        |
+| Contract                   | Selector       | Calls | Reverts | Discards | Failed |
+|----------------------------|----------------|-------|---------|----------|--------|
+| InvariantTargetIncludeTest | shouldInclude1 | [..]   | 0       | 0        | 0      |
+| InvariantTargetIncludeTest | shouldInclude2 | [..]   | 0       | 0        | 0      |
 
 Suite result: ok. 1 passed; 0 failed; 0 skipped; [ELAPSED]
 
@@ -899,10 +899,10 @@ No files changed, compilation skipped
 Ran 1 test for test/InvariantTargetTest.t.sol:InvariantTargetExcludeTest
 [PASS] invariant_exclude() (runs: 10, calls: 1000, reverts: 0)
 
-| Contract                   | Selector       | Calls | Reverts | Discards |
-|----------------------------|----------------|-------|---------|----------|
-| InvariantTargetExcludeTest | shouldInclude1 | [..]   | 0       | 0        |
-| InvariantTargetExcludeTest | shouldInclude2 | [..]   | 0       | 0        |
+| Contract                   | Selector       | Calls | Reverts | Discards | Failed |
+|----------------------------|----------------|-------|---------|----------|--------|
+| InvariantTargetExcludeTest | shouldInclude1 | [..]   | 0       | 0        | 0      |
+| InvariantTargetExcludeTest | shouldInclude2 | [..]   | 0       | 0        | 0      |
 
 Suite result: ok. 1 passed; 0 failed; 0 skipped; [ELAPSED]
 

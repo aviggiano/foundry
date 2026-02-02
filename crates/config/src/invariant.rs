@@ -32,6 +32,7 @@ pub struct InvariantConfig {
     /// Path where invariant failures are recorded and replayed.
     pub failure_persist_dir: Option<PathBuf>,
     /// Whether to collect and display fuzzed selectors metrics.
+    /// When enabled, JSON output includes invariant metrics.
     pub show_metrics: bool,
     /// Optional timeout (in seconds) for each invariant test.
     pub timeout: Option<u32>,

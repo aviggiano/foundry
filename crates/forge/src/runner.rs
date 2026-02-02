@@ -754,8 +754,13 @@ impl<'a> FunctionRunner<'a> {
             identified_contracts,
             &self.cr.mcr.known_contracts,
         );
-        let invariant_contract =
-            InvariantContract::new(self.address, func, call_after_invariant, &self.cr.contract.abi);
+        let invariant_contract = InvariantContract::new(
+            self.cr.name,
+            self.address,
+            func,
+            call_after_invariant,
+            &self.cr.contract.abi,
+        );
         let show_solidity = invariant_config.show_solidity;
 
         let progress = start_fuzz_progress(

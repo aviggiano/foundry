@@ -112,7 +112,7 @@ sol! {
     }
 }
 
-/// Contains invariant metrics for a single fuzzed selector.
+/// Contains invariant metrics for a single entry (fuzzed selector or invariant function).
 #[derive(Default, Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 pub struct InvariantMetrics {
     // Count of fuzzed selector calls.
@@ -121,6 +121,9 @@ pub struct InvariantMetrics {
     pub reverts: usize,
     // Count of fuzzed selector discards (through assume cheatcodes).
     pub discards: usize,
+    // Count of times this metric entry observed a broken invariant.
+    #[serde(default)]
+    pub failed: usize,
 }
 
 /// Contains data collected during invariant test runs.
@@ -236,6 +239,17 @@ impl InvariantTest {
                 invariant_metrics.reverts += 1;
             }
         }
+    }
+
+    /// Records a broken invariant for the invariant test function.
+    fn record_invariant_failure(&mut self, invariant_contract: &InvariantContract<'_>) {
+        let metric_key = format!(
+            "{}.{}",
+            invariant_contract.identifier, invariant_contract.invariant_function.name
+        );
+        let test_metrics = &mut self.test_data.metrics;
+        let invariant_metrics = test_metrics.entry(metric_key).or_default();
+        invariant_metrics.failed += 1;
     }
 
     /// End invariant test run by collecting results, cleaning collected artifacts and reverting
@@ -536,6 +550,14 @@ impl<'a> InvariantExecutor<'a> {
                     }
                     // If test cannot continue then stop current run and exit test suite.
                     if !result.can_continue {
+                        if matches!(
+                            invariant_test.test_data.failures.error,
+                            Some(InvariantFuzzError::BrokenInvariant(_))
+                        ) {
+                            if self.config.show_metrics {
+                                invariant_test.record_invariant_failure(&invariant_contract);
+                            }
+                        }
                         break 'stop;
                     }
 
@@ -556,13 +578,23 @@ impl<'a> InvariantExecutor<'a> {
 
             // Call `afterInvariant` only if it is declared and test didn't fail already.
             if invariant_contract.call_after_invariant && !invariant_test.has_errors() {
-                assert_after_invariant(
+                let after_invariant_success = assert_after_invariant(
                     &invariant_contract,
                     &mut invariant_test,
                     &current_run,
                     &self.config,
                 )
                 .map_err(|_| eyre!("Failed to call afterInvariant"))?;
+                if !after_invariant_success
+                    && matches!(
+                        invariant_test.test_data.failures.error,
+                        Some(InvariantFuzzError::BrokenInvariant(_))
+                    )
+                {
+                    if self.config.show_metrics {
+                        invariant_test.record_invariant_failure(&invariant_contract);
+                    }
+                }
             }
 
             // End current invariant test run.
