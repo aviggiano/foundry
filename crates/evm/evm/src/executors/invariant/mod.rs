@@ -1,7 +1,7 @@
 use crate::{
     executors::{
         DURATION_BETWEEN_METRICS_REPORT, EarlyExit, EvmError, Executor, FuzzTestTimer,
-        RawCallResult, corpus::WorkerCorpus,
+        RawCallResult, corpus::{CorpusMetrics, WorkerCorpus},
     },
     inspectors::Fuzzer,
 };
@@ -392,7 +392,10 @@ impl<'a> InvariantExecutor<'a> {
         let mut runs = 0;
         let timer = FuzzTestTimer::new(self.config.timeout);
         let mut last_metrics_report = Instant::now();
-        let mut emit_edge_metrics = |force: bool| -> Result<()> {
+        // Invariant runs with edge coverage if corpus dir is set or showing edge coverage.
+        let edge_coverage_enabled = self.config.corpus.collect_edge_coverage();
+        let invariant_name = invariant_contract.invariant_function.name.as_str();
+        let mut emit_edge_metrics = |force: bool, failed: usize, metrics: &CorpusMetrics| -> Result<()> {
             if !edge_coverage_enabled {
                 return Ok(());
             }
@@ -407,9 +410,9 @@ impl<'a> InvariantExecutor<'a> {
                 "timestamp": SystemTime::now()
                     .duration_since(UNIX_EPOCH)?
                     .as_secs(),
-                "invariant": invariant_contract.invariant_function.name,
-                "failed": invariant_test.invariant_failure_count(&invariant_contract),
-                "metrics": &corpus_manager.metrics,
+                "invariant": invariant_name,
+                "failed": failed,
+                "metrics": metrics,
             });
             let _ = sh_println!("{}", serde_json::to_string(&metrics)?);
             last_metrics_report = Instant::now();
@@ -423,8 +426,6 @@ impl<'a> InvariantExecutor<'a> {
             if timer.is_enabled() { !timer.is_timed_out() } else { runs < self.config.runs }
         };
 
-        // Invariant runs with edge coverage if corpus dir is set or showing edge coverage.
-        let edge_coverage_enabled = self.config.corpus.collect_edge_coverage();
         let log_broken_invariant = |run: u32, call: u32, note: Option<&str>| {
             if shell::is_quiet() || shell::is_json() {
                 return;
@@ -609,7 +610,9 @@ impl<'a> InvariantExecutor<'a> {
                                 invariant_test.record_invariant_failure(&invariant_contract);
                             }
                             log_broken_invariant(runs + 1, current_run.depth + 1, None);
-                            emit_edge_metrics(true)?;
+                            let failed =
+                                invariant_test.invariant_failure_count(&invariant_contract);
+                            emit_edge_metrics(true, failed, &corpus_manager.metrics)?;
                         }
                         break 'stop;
                     }
@@ -648,7 +651,8 @@ impl<'a> InvariantExecutor<'a> {
                         invariant_test.record_invariant_failure(&invariant_contract);
                     }
                     log_broken_invariant(runs + 1, current_run.depth, Some("afterInvariant"));
-                    emit_edge_metrics(true)?;
+                    let failed = invariant_test.invariant_failure_count(&invariant_contract);
+                    emit_edge_metrics(true, failed, &corpus_manager.metrics)?;
                 }
             }
 
@@ -661,8 +665,11 @@ impl<'a> InvariantExecutor<'a> {
                 if edge_coverage_enabled {
                     progress.set_message(format!("{}", &corpus_manager.metrics));
                 }
-            } else if emit_edge_metrics(false).is_err() {
-                // ignore edge metrics errors to avoid breaking invariant loop
+            } else {
+                let failed = invariant_test.invariant_failure_count(&invariant_contract);
+                if emit_edge_metrics(false, failed, &corpus_manager.metrics).is_err() {
+                    // ignore edge metrics errors to avoid breaking invariant loop
+                }
             }
 
             runs += 1;
