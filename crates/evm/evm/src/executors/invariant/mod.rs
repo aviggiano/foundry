@@ -14,7 +14,7 @@ use eyre::{ContextCompat, Result, eyre};
 use foundry_common::{
     TestFunctionExt,
     contracts::{ContractsByAddress, ContractsByArtifact},
-    sh_println,
+    sh_println, shell,
 };
 use foundry_config::InvariantConfig;
 use foundry_evm_core::{
@@ -372,6 +372,7 @@ impl<'a> InvariantExecutor<'a> {
             return Err(eyre!("Invariant test function should have no inputs"));
         }
 
+        let test_start = Instant::now();
         let (mut invariant_test, mut corpus_manager) =
             self.prepare_test(&invariant_contract, fuzz_fixtures, fuzz_state)?;
 
@@ -389,6 +390,24 @@ impl<'a> InvariantExecutor<'a> {
 
         // Invariant runs with edge coverage if corpus dir is set or showing edge coverage.
         let edge_coverage_enabled = self.config.corpus.collect_edge_coverage();
+        let log_broken_invariant = |run: u32, call: u32, note: Option<&str>| {
+            if shell::is_quiet() || shell::is_json() {
+                return;
+            }
+            let elapsed = test_start.elapsed().as_secs_f64();
+            let mut message = format!(
+                "Invariant {} broken at run {run}, call {call} ({elapsed:.3}s elapsed)",
+                invariant_contract.invariant_function.name
+            );
+            if let Some(note) = note {
+                message.push_str(&format!(" [{note}]"));
+            }
+            if let Some(progress) = progress {
+                let _ = progress.println(message);
+            } else {
+                let _ = sh_println!("{message}");
+            }
+        };
 
         'stop: while continue_campaign(runs) {
             let initial_seq = corpus_manager.new_inputs(
@@ -555,6 +574,7 @@ impl<'a> InvariantExecutor<'a> {
                             if self.config.show_metrics {
                                 invariant_test.record_invariant_failure(&invariant_contract);
                             }
+                            log_broken_invariant(runs + 1, current_run.depth + 1, None);
                         }
                         break 'stop;
                     }
@@ -592,6 +612,7 @@ impl<'a> InvariantExecutor<'a> {
                     if self.config.show_metrics {
                         invariant_test.record_invariant_failure(&invariant_contract);
                     }
+                    log_broken_invariant(runs + 1, current_run.depth, Some("afterInvariant"));
                 }
             }
 
