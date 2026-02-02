@@ -14,7 +14,7 @@ use eyre::{ContextCompat, Result, eyre};
 use foundry_common::{
     TestFunctionExt,
     contracts::{ContractsByAddress, ContractsByArtifact},
-    sh_println, shell,
+    sh_println,
 };
 use foundry_config::InvariantConfig;
 use foundry_evm_core::{
@@ -426,24 +426,6 @@ impl<'a> InvariantExecutor<'a> {
             if timer.is_enabled() { !timer.is_timed_out() } else { runs < self.config.runs }
         };
 
-        let log_broken_invariant = |run: u32, call: u32, note: Option<&str>| {
-            if shell::is_quiet() || shell::is_json() {
-                return;
-            }
-            let mut message = format!(
-                "Invariant {} broken at run {run}, call {call}",
-                invariant_contract.invariant_function.name
-            );
-            if let Some(note) = note {
-                message.push_str(&format!(" [{note}]"));
-            }
-            if let Some(progress) = progress {
-                let _ = progress.println(message);
-            } else {
-                let _ = sh_println!("{message}");
-            }
-        };
-
         'stop: while continue_campaign(runs) {
             let initial_seq = corpus_manager.new_inputs(
                 &mut invariant_test.test_data.branch_runner,
@@ -609,7 +591,6 @@ impl<'a> InvariantExecutor<'a> {
                             if self.config.show_metrics {
                                 invariant_test.record_invariant_failure(&invariant_contract);
                             }
-                            log_broken_invariant(runs + 1, current_run.depth + 1, None);
                             let failed =
                                 invariant_test.invariant_failure_count(&invariant_contract);
                             emit_edge_metrics(true, failed, &corpus_manager.metrics)?;
@@ -650,7 +631,6 @@ impl<'a> InvariantExecutor<'a> {
                     if self.config.show_metrics {
                         invariant_test.record_invariant_failure(&invariant_contract);
                     }
-                    log_broken_invariant(runs + 1, current_run.depth, Some("afterInvariant"));
                     let failed = invariant_test.invariant_failure_count(&invariant_contract);
                     emit_edge_metrics(true, failed, &corpus_manager.metrics)?;
                 }
