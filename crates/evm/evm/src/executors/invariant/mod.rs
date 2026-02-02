@@ -372,7 +372,6 @@ impl<'a> InvariantExecutor<'a> {
             return Err(eyre!("Invariant test function should have no inputs"));
         }
 
-        let test_start = Instant::now();
         let (mut invariant_test, mut corpus_manager) =
             self.prepare_test(&invariant_contract, fuzz_fixtures, fuzz_state)?;
 
@@ -394,9 +393,8 @@ impl<'a> InvariantExecutor<'a> {
             if shell::is_quiet() || shell::is_json() {
                 return;
             }
-            let elapsed = test_start.elapsed().as_secs_f64();
             let mut message = format!(
-                "Invariant {} broken at run {run}, call {call} ({elapsed:.3}s elapsed)",
+                "Invariant {} broken at run {run}, call {call}",
                 invariant_contract.invariant_function.name
             );
             if let Some(note) = note {
