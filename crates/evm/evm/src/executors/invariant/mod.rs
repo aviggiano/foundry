@@ -395,7 +395,6 @@ impl<'a> InvariantExecutor<'a> {
         // Invariant runs with edge coverage if corpus dir is set or showing edge coverage.
         let edge_coverage_enabled = self.config.corpus.collect_edge_coverage();
         let invariant_name = invariant_contract.invariant_function.name.as_str();
-        let invariant_identifier = invariant_contract.identifier.as_str();
         let mut emit_edge_metrics = |force: bool, failed: usize, metrics: &CorpusMetrics| -> Result<()> {
             if !edge_coverage_enabled {
                 return Ok(());
@@ -411,7 +410,6 @@ impl<'a> InvariantExecutor<'a> {
                 "timestamp": SystemTime::now()
                     .duration_since(UNIX_EPOCH)?
                     .as_secs(),
-                "contract": invariant_identifier,
                 "invariant": invariant_name,
                 "failed": failed,
                 "metrics": metrics,

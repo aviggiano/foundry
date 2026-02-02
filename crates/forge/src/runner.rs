@@ -12,7 +12,7 @@ use alloy_dyn_abi::{DynSolValue, JsonAbiExt};
 use alloy_json_abi::Function;
 use alloy_primitives::{Address, Bytes, U256, address, map::HashMap};
 use eyre::Result;
-use foundry_common::{TestFunctionExt, TestFunctionKind, contracts::ContractsByAddress};
+use foundry_common::{TestFunctionExt, TestFunctionKind, contracts::ContractsByAddress, sh_println};
 use foundry_compilers::utils::canonicalized;
 use foundry_config::{Config, FuzzCorpusConfig};
 use foundry_evm::{
@@ -35,13 +35,14 @@ use itertools::Itertools;
 use proptest::test_runner::{RngAlgorithm, TestError, TestRng, TestRunner};
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 use std::{
     borrow::Cow,
     cmp::min,
     collections::BTreeMap,
     path::{Path, PathBuf},
     sync::Arc,
-    time::Instant,
+    time::{Instant, SystemTime, UNIX_EPOCH},
 };
 use tokio::signal;
 use tracing::Span;
@@ -731,7 +732,7 @@ impl<'a> FunctionRunner<'a> {
         };
 
         let runner = self.invariant_runner();
-        let invariant_config = &self.config.invariant;
+        let invariant_config = self.config.invariant.clone();
 
         let mut executor = self.clone_executor();
         // Enable edge coverage if running with coverage guided fuzzing or with edge coverage
@@ -844,6 +845,25 @@ impl<'a> FunctionRunner<'a> {
                     }
                     Err(err) => {
                         error!(%err, "Failed to replay invariant error");
+                    }
+                }
+
+                if invariant_config.corpus.collect_edge_coverage() && progress.is_none() {
+                    if let Ok(timestamp) = SystemTime::now().duration_since(UNIX_EPOCH) {
+                        let metrics = json!({
+                            "timestamp": timestamp.as_secs(),
+                            "invariant": invariant_contract.invariant_function.name.as_str(),
+                            "failed": 1usize,
+                            "metrics": {
+                                "cumulative_edges_seen": 0usize,
+                                "cumulative_features_seen": 0usize,
+                                "corpus_count": 0usize,
+                                "favored_items": 0usize,
+                            }
+                        });
+                        if let Ok(line) = serde_json::to_string(&metrics) {
+                            let _ = sh_println!("{line}");
+                        }
                     }
                 }
 
