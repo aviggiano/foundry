@@ -252,6 +252,19 @@ impl InvariantTest {
         invariant_metrics.failed += 1;
     }
 
+    /// Returns number of broken invariants recorded for this invariant test.
+    fn invariant_failure_count(&self, invariant_contract: &InvariantContract<'_>) -> usize {
+        let metric_key = format!(
+            "{}.{}",
+            invariant_contract.identifier, invariant_contract.invariant_function.name
+        );
+        self.test_data
+            .metrics
+            .get(&metric_key)
+            .map(|metrics| metrics.failed)
+            .unwrap_or(0)
+    }
+
     /// End invariant test run by collecting results, cleaning collected artifacts and reverting
     /// created fuzz state.
     fn end_run(&mut self, run: InvariantTestRun, gas_samples: usize) {
@@ -632,6 +645,7 @@ impl<'a> InvariantExecutor<'a> {
                         .duration_since(UNIX_EPOCH)?
                         .as_secs(),
                     "invariant": invariant_contract.invariant_function.name,
+                    "failed": invariant_test.invariant_failure_count(&invariant_contract),
                     "metrics": &corpus_manager.metrics,
                 });
                 let _ = sh_println!("{}", serde_json::to_string(&metrics)?);
