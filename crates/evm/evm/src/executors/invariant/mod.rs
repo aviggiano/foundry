@@ -246,6 +246,18 @@ impl InvariantTest {
         self.fuzz_state.revert();
     }
 
+    /// Records failed invariants in metrics.
+    ///
+    /// Each invariant can fail at most once per campaign, so we increment by one for each entry in
+    /// the failures map.
+    fn record_failed_invariant_metrics(&mut self, invariant_contract: &InvariantContract<'_>) {
+        let failed_invariants: Vec<_> = self.test_data.failures.errors.keys().cloned().collect();
+        for invariant_name in failed_invariants {
+            let metric_key = format!("{}.{}", invariant_contract.identifier, invariant_name);
+            self.test_data.metrics.entry(metric_key).or_default().failed += 1;
+        }
+    }
+
 }
 
 /// Contains data for an invariant test run.
@@ -538,6 +550,9 @@ impl<'a> InvariantExecutor<'a> {
         }
 
         trace!(?fuzz_fixtures);
+        if self.config.show_metrics {
+            invariant_test.record_failed_invariant_metrics(&invariant_contract);
+        }
         invariant_test.fuzz_state.log_stats();
 
         let result = invariant_test.test_data;
