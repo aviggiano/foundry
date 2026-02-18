@@ -4,7 +4,7 @@ use crate::executors::{
     invariant::shrink::{shrink_sequence, shrink_sequence_value},
 };
 use alloy_dyn_abi::JsonAbiExt;
-use alloy_primitives::{I256, Log, map::HashMap};
+use alloy_primitives::{I256, Log, U256, map::HashMap};
 use eyre::Result;
 use foundry_common::{ContractsByAddress, ContractsByArtifact};
 use foundry_config::InvariantConfig;
@@ -119,9 +119,7 @@ pub fn generate_counterexample(
 
         // Create counter example to be used in failed case.
         counterexample_sequence.push(BaseCounterExample::from_invariant_call(
-            tx.sender,
-            tx.call_details.target,
-            &tx.call_details.calldata,
+            tx,
             &ided_contracts,
             call_result.traces,
             show_solidity,

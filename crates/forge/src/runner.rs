@@ -776,7 +776,9 @@ impl<'a> FunctionRunner<'a> {
 
         // Filter out additional invariants to test if we already have a persisted failure.
         let invariant_contract = InvariantContract {
+            identifier: self.cr.name.to_string(),
             address: self.address,
+            invariant_function: func,
             invariant_fn: func,
             invariant_fns: invariants
                 .into_iter()
@@ -787,8 +789,8 @@ impl<'a> FunctionRunner<'a> {
                 })
                 .collect(),
             call_after_invariant,
-            &self.cr.contract.abi,
-        );
+            abi: &self.cr.contract.abi,
+        };
         let show_solidity = invariant_config.show_solidity;
 
         let progress = start_fuzz_progress(
@@ -956,6 +958,7 @@ impl<'a> FunctionRunner<'a> {
                     self.clone_executor(),
                     calls,
                     Some(case_data.inner_sequence.clone()),
+                    None,
                     &invariant_contract,
                     &self.cr.mcr.known_contracts,
                     identified_contracts.clone(),

@@ -1,7 +1,7 @@
 use crate::{
     executors::{
         DURATION_BETWEEN_METRICS_REPORT, EarlyExit, EvmError, Executor, FuzzTestTimer,
-        RawCallResult, corpus::{CorpusMetrics, WorkerCorpus},
+        RawCallResult, corpus::WorkerCorpus,
     },
     inspectors::Fuzzer,
 };
@@ -36,7 +36,7 @@ use foundry_evm_traces::{CallTraceArena, SparsedTraceArena};
 use indicatif::ProgressBar;
 use parking_lot::RwLock;
 use proptest::{strategy::Strategy, test_runner::TestRunner};
-use result::{assert_after_invariant, can_continue};
+use result::{assert_after_invariant, can_continue, invariant_preflight_check};
 use revm::state::Account;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -57,10 +57,6 @@ mod result;
 pub use result::InvariantFuzzTestResult;
 
 mod shrink;
-use crate::executors::{
-    DURATION_BETWEEN_METRICS_REPORT, EarlyExit, EvmError, FuzzTestTimer, corpus::CorpusManager,
-    invariant::result::invariant_preflight_check,
-};
 pub use shrink::check_sequence;
 
 sol! {
@@ -233,30 +229,6 @@ impl InvariantTest {
         }
     }
 
-    /// Records a broken invariant for the invariant test function.
-    fn record_invariant_failure(&mut self, invariant_contract: &InvariantContract<'_>) {
-        let metric_key = format!(
-            "{}.{}",
-            invariant_contract.identifier, invariant_contract.invariant_function.name
-        );
-        let test_metrics = &mut self.test_data.metrics;
-        let invariant_metrics = test_metrics.entry(metric_key).or_default();
-        invariant_metrics.failed += 1;
-    }
-
-    /// Returns number of broken invariants recorded for this invariant test.
-    fn invariant_failure_count(&self, invariant_contract: &InvariantContract<'_>) -> usize {
-        let metric_key = format!(
-            "{}.{}",
-            invariant_contract.identifier, invariant_contract.invariant_function.name
-        );
-        self.test_data
-            .metrics
-            .get(&metric_key)
-            .map(|metrics| metrics.failed)
-            .unwrap_or(0)
-    }
-
     /// End invariant test run by collecting results, cleaning collected artifacts and reverting
     /// created fuzz state.
     fn end_run(&mut self, run: InvariantTestRun, gas_samples: usize) {
@@ -274,13 +246,6 @@ impl InvariantTest {
         self.fuzz_state.revert();
     }
 
-    /// Updates the optimization state if the new value is better (higher) than the current best.
-    fn update_optimization_value(&mut self, value: I256, sequence: &[BasicTxDetails]) {
-        if self.test_data.optimization_best_value.is_none_or(|best| value > best) {
-            self.test_data.optimization_best_value = Some(value);
-            self.test_data.optimization_best_sequence = sequence.to_vec();
-        }
-    }
 }
 
 /// Contains data for an invariant test run.
@@ -386,30 +351,6 @@ impl<'a> InvariantExecutor<'a> {
         let mut last_metrics_report = Instant::now();
         // Invariant runs with edge coverage if corpus dir is set or showing edge coverage.
         let edge_coverage_enabled = self.config.corpus.collect_edge_coverage();
-        let invariant_name = invariant_contract.invariant_function.name.as_str();
-        let mut emit_edge_metrics = |force: bool, failed: usize, metrics: &CorpusMetrics| -> Result<()> {
-            if !edge_coverage_enabled {
-                return Ok(());
-            }
-            if progress.is_some() {
-                return Ok(());
-            }
-            if !force && last_metrics_report.elapsed() <= DURATION_BETWEEN_METRICS_REPORT {
-                return Ok(());
-            }
-
-            let metrics = json!({
-                "timestamp": SystemTime::now()
-                    .duration_since(UNIX_EPOCH)?
-                    .as_secs(),
-                "invariant": invariant_name,
-                "failed": failed,
-                "metrics": metrics,
-            });
-            let _ = sh_println!("{}", serde_json::to_string(&metrics)?);
-            last_metrics_report = Instant::now();
-            Ok(())
-        };
         let continue_campaign = |runs: u32| {
             if early_exit.should_stop() {
                 return false;
@@ -559,18 +500,6 @@ impl<'a> InvariantExecutor<'a> {
                     &self.config,
                 )
                 .map_err(|_| eyre!("Failed to call afterInvariant"))?;
-                if !after_invariant_success
-                    && matches!(
-                        invariant_test.test_data.failures.error,
-                        Some(InvariantFuzzError::BrokenInvariant(_))
-                    )
-                {
-                    if self.config.show_metrics {
-                        invariant_test.record_invariant_failure(&invariant_contract);
-                    }
-                    let failed = invariant_test.invariant_failure_count(&invariant_contract);
-                    emit_edge_metrics(true, failed, &corpus_manager.metrics)?;
-                }
             }
 
             // End current invariant test run.
