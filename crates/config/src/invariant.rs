@@ -37,18 +37,8 @@ pub struct InvariantConfig {
     pub timeout: Option<u32>,
     /// Display counterexample as solidity calls.
     pub show_solidity: bool,
-    /// Maximum time (in seconds) between generated txs.
-    pub max_time_delay: Option<u32>,
-    /// Maximum number of blocks elapsed between generated txs.
-    pub max_block_delay: Option<u32>,
-    /// Number of calls to execute between invariant assertions.
-    ///
-    /// - `0`: Only assert on the last call of each run (fastest, but may miss exact breaking call)
-    /// - `1` (default): Assert after every call (current behavior, most precise)
-    /// - `N`: Assert every N calls AND always on the last call
-    ///
-    /// Example: `check_interval = 10` means assert after calls 10, 20, 30, ... and the last call.
-    pub check_interval: u32,
+    /// Continue invariant run until all invariants declared in current test suite breaks.
+    pub continuous_run: bool,
 }
 
 impl Default for InvariantConfig {
@@ -67,9 +57,7 @@ impl Default for InvariantConfig {
             show_metrics: true,
             timeout: None,
             show_solidity: false,
-            max_time_delay: None,
-            max_block_delay: None,
-            check_interval: 1,
+            continuous_run: false,
         }
     }
 }

@@ -998,182 +998,82 @@ Ran 3 test suites [ELAPSED]: 6 tests passed, 0 failed, 0 skipped (6 total tests)
     );
 });
 
-// Tests that check_interval=0 only asserts on the last call of each run.
-forgetest_init!(check_interval_zero_only_checks_last_call, |prj, cmd| {
+forgetest_init!(continous_run, |prj, cmd| {
     prj.update_config(|config| {
-        config.invariant.runs = 5;
-        config.invariant.depth = 10;
-        config.invariant.check_interval = 0;
+        config.invariant.runs = 10;
+        config.invariant.depth = 100;
+        config.invariant.continuous_run = true;
     });
-    prj.add_test(
-        "CheckIntervalTest.t.sol",
+    prj.add_source(
+        "Counter.sol",
         r#"
-import {Test} from "forge-std/Test.sol";
+contract Counter {
+    uint256 public cond;
 
-contract CounterHandler {
-    uint256 public counter;
-
-    function increment() public {
-        counter++;
+    function work(uint256 x) public {
+        if (x % 2 != 0 && x < 9000) {
+            cond++;
+        } else {
+            revert();
+        }
     }
 }
+   "#,
+    );
+    prj.add_test(
+        "CounterTest.t.sol",
+        r#"
+import {Test} from "forge-std/Test.sol";
+import {Counter} from "../src/Counter.sol";
 
-contract CheckIntervalTest is Test {
-    CounterHandler handler;
+contract CounterTest is Test {
+    Counter public counter;
 
     function setUp() public {
-        handler = new CounterHandler();
-        targetContract(address(handler));
+        counter = new Counter();
     }
 
-    // This invariant would fail on intermediate calls (counter 1-9) but passes on call 10
-    // With check_interval=0, only the last call is checked, so if depth=10 and counter=10
-    // at the end, this should pass even though intermediate states violated the invariant.
-    function invariant_counter_multiple_of_depth() public view {
-        // Only passes when counter is 0 or 10 (depth). Fails for 1-9.
-        require(handler.counter() == 0 || handler.counter() == 10, "not multiple of depth");
+    function invariant_cond1() public view {
+        require(counter.cond() < 10, "condition 1 met");
+    }
+
+    function invariant_cond2() public view {
+        require(counter.cond() < 15, "condition 2 met");
+    }
+
+    function invariant_cond3() public view {
+        require(counter.cond() < 5, "condition 3 met");
+    }
+
+    function invariant_cond4() public view {
+        require(counter.cond() < 111111, "condition 4 met");
+    }
+
+    /// forge-config: default.invariant.fail-on-revert = true
+    function invariant_cond5() public view {
+        require(counter.cond() < 111111, "condition 5 met");
     }
 }
    "#,
     );
 
-    cmd.args(["test", "--mt", "invariant_counter"]).assert_success().stdout_eq(str![[r#"
+    // Check that running single `invariant_cond3` test continue to run until it breaks all other
+    // invariants.
+    cmd.args(["test", "--mt", "invariant_cond3"]).assert_failure().stdout_eq(str![[r#"
+[COMPILING_FILES] with [SOLC_VERSION]
+[SOLC_VERSION] [ELAPSED]
+Compiler run successful!
+
+Ran 1 test for test/CounterTest.t.sol:CounterTest
+[FAIL: condition 3 met]
+	[Sequence] (original: 5, shrunk: 5)
 ...
-[PASS] invariant_counter_multiple_of_depth() (runs: 5, calls: 50, reverts: 0)
+
+invariant_cond1: condition 1 met
+invariant_cond2: condition 2 met
+invariant_cond5: EvmError: Revert
+ invariant_cond3() (runs: 10, calls: 1000, reverts: [..])
 ...
+
 "#]]);
-});
-
-// Tests that check_interval=1 (default) asserts after every call.
-forgetest_init!(check_interval_one_checks_every_call, |prj, cmd| {
-    prj.update_config(|config| {
-        config.invariant.runs = 1;
-        config.invariant.depth = 10;
-        config.invariant.check_interval = 1;
-    });
-    prj.add_test(
-        "CheckIntervalTest.t.sol",
-        r#"
-import {Test} from "forge-std/Test.sol";
-
-contract CounterHandler {
-    uint256 public counter;
-
-    function increment() public {
-        counter++;
-    }
-}
-
-contract CheckIntervalTest is Test {
-    CounterHandler handler;
-
-    function setUp() public {
-        handler = new CounterHandler();
-        targetContract(address(handler));
-    }
-
-    // This invariant fails as soon as counter > 5.
-    // With check_interval=1, it should fail on call 6.
-    function invariant_counter_le_five() public view {
-        require(handler.counter() <= 5, "counter > 5");
-    }
-}
-   "#,
-    );
-
-    assert_invariant(cmd.args(["test", "--mt", "invariant_counter"])).failure().stdout_eq(str![[
-        r#"
-...
-[FAIL: counter > 5]
-	[SEQUENCE]
-...
-"#
-    ]]);
-});
-
-// Tests that check_interval=N checks every N calls AND always on the last call.
-forgetest_init!(check_interval_n_checks_every_n_calls, |prj, cmd| {
-    prj.update_config(|config| {
-        config.invariant.runs = 1;
-        config.invariant.depth = 20;
-        config.invariant.check_interval = 5;
-    });
-    prj.add_test(
-        "CheckIntervalTest.t.sol",
-        r#"
-import {Test} from "forge-std/Test.sol";
-
-contract CounterHandler {
-    uint256 public counter;
-
-    function increment() public {
-        counter++;
-    }
-}
-
-contract CheckIntervalTest is Test {
-    CounterHandler handler;
-
-    function setUp() public {
-        handler = new CounterHandler();
-        targetContract(address(handler));
-    }
-
-    // With check_interval=5 and depth=20, invariant is checked at calls 5,10,15,20.
-    // This passes because 5,10,15,20 are all multiples of 5.
-    function invariant_counter_multiple_of_five() public view {
-        require(handler.counter() % 5 == 0, "not multiple of 5");
-    }
-}
-   "#,
-    );
-
-    cmd.args(["test", "--mt", "invariant_counter"]).assert_success().stdout_eq(str![[r#"
-...
-[PASS] invariant_counter_multiple_of_five() (runs: 1, calls: 20, reverts: 0)
-...
-"#]]);
-});
-
-// Tests check_interval via inline config annotation.
-forgetest_init!(check_interval_inline_config, |prj, cmd| {
-    prj.add_test(
-        "CheckIntervalInlineTest.t.sol",
-        r#"
-import {Test} from "forge-std/Test.sol";
-
-contract CounterHandler {
-    uint256 public counter;
-
-    function increment() public {
-        counter++;
-    }
-}
-
-contract CheckIntervalInlineTest is Test {
-    CounterHandler handler;
-
-    function setUp() public {
-        handler = new CounterHandler();
-        targetContract(address(handler));
-    }
-
-    /// forge-config: default.invariant.runs = 1
-    /// forge-config: default.invariant.depth = 10
-    /// forge-config: default.invariant.check_interval = 0
-    function invariant_only_last_checked() public view {
-        // Only passes when counter is 0 or 10. With check_interval=0, only last call is checked.
-        require(handler.counter() == 0 || handler.counter() == 10, "not at boundary");
-    }
-}
-   "#,
-    );
-
-    cmd.args(["test", "--mt", "invariant_only_last_checked"]).assert_success().stdout_eq(str![[
-        r#"
-...
-[PASS] invariant_only_last_checked() (runs: 1, calls: 10, reverts: 0)
-...
-"#
-    ]]);
 });

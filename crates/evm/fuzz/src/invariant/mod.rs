@@ -263,10 +263,10 @@ impl TargetedContract {
 pub struct InvariantContract<'a> {
     /// Address of the test contract.
     pub address: Address,
-    /// Identifier of the test contract.
-    pub identifier: String,
-    /// Invariant function present in the test contract.
-    pub invariant_function: &'a Function,
+    /// Invariant function.
+    pub invariant_fn: &'a Function,
+    /// All invariant functions present in the test contract and their fail on revert config.
+    pub invariant_fns: Vec<(&'a Function, bool)>,
     /// If true, `afterInvariant` function is called after each invariant run.
     pub call_after_invariant: bool,
     /// ABI of the test contract.
