@@ -257,7 +257,6 @@ impl InvariantTest {
             self.test_data.metrics.entry(metric_key).or_default().failed += 1;
         }
     }
-
 }
 
 /// Contains data for an invariant test run.
@@ -534,12 +533,16 @@ impl<'a> InvariantExecutor<'a> {
             } else if edge_coverage_enabled
                 && last_metrics_report.elapsed() > DURATION_BETWEEN_METRICS_REPORT
             {
+                let failed = usize::from(
+                    invariant_test.test_data.failures.has_failure(invariant_contract.invariant_fn),
+                );
                 // Display metrics inline if corpus dir set.
                 let metrics = json!({
                     "timestamp": SystemTime::now()
                         .duration_since(UNIX_EPOCH)?
                         .as_secs(),
                     "invariant": invariant_contract.invariant_fn.name,
+                    "failed": failed,
                     "metrics": &corpus_manager.metrics,
                 });
                 let _ = sh_println!("{}", serde_json::to_string(&metrics)?);
