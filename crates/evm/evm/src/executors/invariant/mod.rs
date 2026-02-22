@@ -41,7 +41,7 @@ use revm::state::Account;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::{
-    collections::{HashMap as Map, btree_map::Entry},
+    collections::{HashMap as Map, HashSet, btree_map::Entry},
     sync::Arc,
     time::{Instant, SystemTime, UNIX_EPOCH},
 };
@@ -125,6 +125,60 @@ pub struct InvariantMetrics {
     // Count of times this metric entry observed a broken invariant.
     #[serde(default)]
     pub failed: usize,
+}
+
+fn emit_invariant_failure_line(invariant: &str, failed_total: usize) {
+    if let Ok(timestamp) = SystemTime::now().duration_since(UNIX_EPOCH) {
+        let payload = json!({
+            "type": "invariant_failure",
+            "timestamp": timestamp.as_secs(),
+            "invariant": invariant,
+            "failed_total": failed_total,
+        });
+        if let Ok(line) = serde_json::to_string(&payload) {
+            let _ = sh_println!("{line}");
+        }
+    }
+}
+
+fn emit_invariant_metrics_line(
+    invariant: &str,
+    failed_current: usize,
+    failed_total: usize,
+    metrics: &impl Serialize,
+) {
+    if let Ok(timestamp) = SystemTime::now().duration_since(UNIX_EPOCH) {
+        let payload = json!({
+            "type": "invariant_metrics",
+            "timestamp": timestamp.as_secs(),
+            "invariant": invariant,
+            "failed_current": failed_current,
+            "failed_total": failed_total,
+            "metrics": metrics,
+        });
+        if let Ok(line) = serde_json::to_string(&payload) {
+            let _ = sh_println!("{line}");
+        }
+    }
+}
+
+fn emit_new_invariant_failure_events(
+    failures: &InvariantFailures,
+    reported_failures: &mut HashSet<String>,
+) {
+    let mut newly_failed: Vec<_> =
+        failures.errors.keys().filter(|name| !reported_failures.contains(*name)).cloned().collect();
+
+    if newly_failed.is_empty() {
+        return;
+    }
+
+    newly_failed.sort_unstable();
+    let failed_total = failures.errors.len();
+    for invariant in newly_failed {
+        emit_invariant_failure_line(invariant.as_str(), failed_total);
+        reported_failures.insert(invariant);
+    }
 }
 
 /// Contains data collected during invariant test runs.
@@ -362,6 +416,8 @@ impl<'a> InvariantExecutor<'a> {
         let mut last_metrics_report = Instant::now();
         // Invariant runs with edge coverage if corpus dir is set or showing edge coverage.
         let edge_coverage_enabled = self.config.corpus.collect_edge_coverage();
+        let stream_metrics = edge_coverage_enabled && progress.is_none();
+        let mut reported_failures = HashSet::new();
         let continue_campaign = |runs: u32| {
             if early_exit.should_stop() {
                 return false;
@@ -479,6 +535,13 @@ impl<'a> InvariantExecutor<'a> {
                         &state_changeset,
                     )
                     .map_err(|e| eyre!(e.to_string()))?;
+
+                    if stream_metrics {
+                        emit_new_invariant_failure_events(
+                            &invariant_test.test_data.failures,
+                            &mut reported_failures,
+                        );
+                    }
                     if !can_continue || current_run.depth == self.config.depth - 1 {
                         invariant_test.set_last_run_inputs(&current_run.inputs);
                     }
@@ -530,26 +593,41 @@ impl<'a> InvariantExecutor<'a> {
                     parts.push(format!("{}", corpus_manager.metrics));
                 }
                 progress.set_message(parts.join(""));
-            } else if edge_coverage_enabled
+            } else if stream_metrics
                 && last_metrics_report.elapsed() > DURATION_BETWEEN_METRICS_REPORT
             {
-                let failed = usize::from(
+                let failed_current = usize::from(
                     invariant_test.test_data.failures.has_failure(invariant_contract.invariant_fn),
                 );
-                // Display metrics inline if corpus dir set.
-                let metrics = json!({
-                    "timestamp": SystemTime::now()
-                        .duration_since(UNIX_EPOCH)?
-                        .as_secs(),
-                    "invariant": invariant_contract.invariant_fn.name,
-                    "failed": failed,
-                    "metrics": &corpus_manager.metrics,
-                });
-                let _ = sh_println!("{}", serde_json::to_string(&metrics)?);
+                let failed_total = invariant_test.test_data.failures.errors.len();
+                emit_invariant_metrics_line(
+                    invariant_contract.invariant_fn.name.as_str(),
+                    failed_current,
+                    failed_total,
+                    &corpus_manager.metrics,
+                );
                 last_metrics_report = Instant::now();
             }
 
             runs += 1;
+        }
+
+        // Final flush so timeouts/early stops still emit a terminal snapshot and failure events.
+        if stream_metrics {
+            emit_new_invariant_failure_events(
+                &invariant_test.test_data.failures,
+                &mut reported_failures,
+            );
+            let failed_current = usize::from(
+                invariant_test.test_data.failures.has_failure(invariant_contract.invariant_fn),
+            );
+            let failed_total = invariant_test.test_data.failures.errors.len();
+            emit_invariant_metrics_line(
+                invariant_contract.invariant_fn.name.as_str(),
+                failed_current,
+                failed_total,
+                &corpus_manager.metrics,
+            );
         }
 
         trace!(?fuzz_fixtures);
