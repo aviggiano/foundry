@@ -416,7 +416,8 @@ impl<'a> InvariantExecutor<'a> {
         let mut last_metrics_report = Instant::now();
         // Invariant runs with edge coverage if corpus dir is set or showing edge coverage.
         let edge_coverage_enabled = self.config.corpus.collect_edge_coverage();
-        let stream_metrics = edge_coverage_enabled && progress.is_none();
+        let stream_failures = progress.is_none();
+        let stream_metrics = edge_coverage_enabled && stream_failures;
         let mut reported_failures = HashSet::new();
         let continue_campaign = |runs: u32| {
             if early_exit.should_stop() {
@@ -536,7 +537,7 @@ impl<'a> InvariantExecutor<'a> {
                     )
                     .map_err(|e| eyre!(e.to_string()))?;
 
-                    if stream_metrics {
+                    if stream_failures {
                         emit_new_invariant_failure_events(
                             &invariant_test.test_data.failures,
                             &mut reported_failures,
@@ -613,11 +614,13 @@ impl<'a> InvariantExecutor<'a> {
         }
 
         // Final flush so timeouts/early stops still emit a terminal snapshot and failure events.
-        if stream_metrics {
+        if stream_failures {
             emit_new_invariant_failure_events(
                 &invariant_test.test_data.failures,
                 &mut reported_failures,
             );
+        }
+        if stream_metrics {
             let failed_current = usize::from(
                 invariant_test.test_data.failures.has_failure(invariant_contract.invariant_fn),
             );
