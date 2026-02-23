@@ -90,6 +90,8 @@ pub struct FailedInvariantCaseData {
     pub shrink_run_limit: u32,
     /// Fail on revert, used to check sequence when shrinking.
     pub fail_on_revert: bool,
+    /// Fail on Solidity assert failures, used to check sequence when shrinking.
+    pub fail_on_assert: bool,
 }
 
 impl FailedInvariantCaseData {
@@ -97,6 +99,7 @@ impl FailedInvariantCaseData {
         invariant_contract: &InvariantContract<'_>,
         shrink_run_limit: u32,
         fail_on_revert: bool,
+        fail_on_assert: bool,
         targeted_contracts: &FuzzRunIdentifiedContracts,
         calldata: &[BasicTxDetails],
         call_result: &RawCallResult,
@@ -123,6 +126,7 @@ impl FailedInvariantCaseData {
             inner_sequence: inner_sequence.to_vec(),
             shrink_run_limit,
             fail_on_revert,
+            fail_on_assert,
         }
     }
 }

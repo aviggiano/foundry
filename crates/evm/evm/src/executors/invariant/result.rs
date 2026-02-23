@@ -13,6 +13,7 @@ use foundry_evm_fuzz::{
     BasicTxDetails, FuzzedCases,
     invariant::{FuzzRunIdentifiedContracts, InvariantContract},
 };
+use revm::interpreter::InstructionResult;
 use revm_inspectors::tracing::CallTraceArena;
 use std::{borrow::Cow, collections::HashMap};
 
@@ -67,6 +68,7 @@ pub(crate) fn invariant_preflight_check(
                 invariant_contract,
                 invariant_config.shrink_run_limit,
                 invariant_config.fail_on_revert,
+                invariant_config.fail_on_assert,
                 targeted_contracts,
                 calldata,
                 &call_result,
@@ -76,6 +78,28 @@ pub(crate) fn invariant_preflight_check(
     }
 
     Ok(())
+}
+
+/// Returns true if this call failed due to a Solidity assert:
+/// - Panic(0x01), or
+/// - legacy invalid opcode assert behavior.
+pub(crate) fn is_assertion_failure(call_result: &RawCallResult) -> bool {
+    if !call_result.reverted {
+        return false;
+    }
+
+    is_assert_panic(call_result.result.as_ref())
+        || matches!(call_result.exit_reason, Some(InstructionResult::InvalidFEOpcode))
+}
+
+fn is_assert_panic(data: &[u8]) -> bool {
+    const PANIC_SELECTOR: [u8; 4] = [0x4e, 0x48, 0x7b, 0x71];
+    if data.len() < 36 || data[..4] != PANIC_SELECTOR {
+        return false;
+    }
+
+    let panic_code = &data[4..36];
+    panic_code[..31].iter().all(|byte| *byte == 0) && panic_code[31] == 0x01
 }
 
 /// Given the executor state, asserts that no invariant has been broken. Otherwise, it fills the
@@ -109,6 +133,7 @@ pub(crate) fn assert_invariants(
                     invariant_contract,
                     invariant_config.shrink_run_limit,
                     *fail_on_revert,
+                    invariant_config.fail_on_assert,
                     targeted_contracts,
                     calldata,
                     &call_result,
@@ -173,21 +198,29 @@ pub(crate) fn can_continue(
     } else {
         // Increase the amount of reverts.
         failures.reverts += 1;
-        // If fail on revert is set, record invariant failure.
+        let should_fail_on_assert = invariant_config.fail_on_assert && is_assertion_failure(&call_result);
+        // If fail on revert is set for an invariant, or this is an assert failure and
+        // fail-on-assert is enabled, record invariant failure.
         for (invariant, fail_on_revert) in &invariant_contract.invariant_fns {
-            if *fail_on_revert {
+            if *fail_on_revert || should_fail_on_assert {
                 let case_data = FailedInvariantCaseData::new(
                     invariant_contract,
                     invariant_config.shrink_run_limit,
                     *fail_on_revert,
+                    invariant_config.fail_on_assert,
                     &invariant_test.targeted_contracts,
                     &invariant_run.inputs,
                     &call_result,
                     &[],
                 );
-                failures
-                    .errors
-                    .insert(invariant.name.clone(), InvariantFuzzError::Revert(case_data));
+                failures.errors.insert(
+                    invariant.name.clone(),
+                    if should_fail_on_assert {
+                        InvariantFuzzError::BrokenInvariant(case_data)
+                    } else {
+                        InvariantFuzzError::Revert(case_data)
+                    },
+                );
             }
         }
         // Remove last reverted call from inputs.
@@ -214,6 +247,7 @@ pub(crate) fn assert_after_invariant(
             invariant_contract,
             invariant_config.shrink_run_limit,
             invariant_config.fail_on_revert,
+            invariant_config.fail_on_assert,
             &invariant_test.targeted_contracts,
             &invariant_run.inputs,
             &call_result,
@@ -225,4 +259,41 @@ pub(crate) fn assert_after_invariant(
         );
     }
     Ok(success)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alloy_primitives::Bytes;
+
+    fn panic_payload(code: u8) -> Bytes {
+        let mut payload = vec![0_u8; 36];
+        payload[..4].copy_from_slice(&[0x4e, 0x48, 0x7b, 0x71]);
+        payload[35] = code;
+        payload.into()
+    }
+
+    #[test]
+    fn detects_assert_panic_code() {
+        let call_result =
+            RawCallResult { reverted: true, result: panic_payload(0x01), ..Default::default() };
+        assert!(is_assertion_failure(&call_result));
+    }
+
+    #[test]
+    fn ignores_non_assert_panic_code() {
+        let call_result =
+            RawCallResult { reverted: true, result: panic_payload(0x11), ..Default::default() };
+        assert!(!is_assertion_failure(&call_result));
+    }
+
+    #[test]
+    fn detects_legacy_invalid_opcode_assert() {
+        let call_result = RawCallResult {
+            reverted: true,
+            exit_reason: Some(InstructionResult::InvalidFEOpcode),
+            ..Default::default()
+        };
+        assert!(is_assertion_failure(&call_result));
+    }
 }
