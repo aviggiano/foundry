@@ -793,6 +793,7 @@ impl<'a> FunctionRunner<'a> {
                 invariant_contract.address,
                 invariant_contract.invariant_function.selector().to_vec().into(),
                 invariant_config.fail_on_revert,
+                invariant_config.fail_on_assert,
                 invariant_contract.call_after_invariant,
             ) && !success
             {

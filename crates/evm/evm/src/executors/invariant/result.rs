@@ -13,6 +13,7 @@ use foundry_evm_fuzz::{
     BasicTxDetails, FuzzedCases,
     invariant::{FuzzRunIdentifiedContracts, InvariantContract},
 };
+use revm::interpreter::InstructionResult;
 use revm_inspectors::tracing::CallTraceArena;
 use std::{borrow::Cow, collections::HashMap};
 
@@ -54,6 +55,28 @@ impl RichInvariantResults {
     pub(crate) fn new(can_continue: bool, call_result: Option<RawCallResult>) -> Self {
         Self { can_continue, call_result }
     }
+}
+
+/// Returns true if this call failed due to a Solidity assert:
+/// - Panic(0x01), or
+/// - legacy invalid opcode assert behavior.
+pub(crate) fn is_assertion_failure(call_result: &RawCallResult) -> bool {
+    if !call_result.reverted {
+        return false;
+    }
+
+    is_assert_panic(call_result.result.as_ref())
+        || matches!(call_result.exit_reason, Some(InstructionResult::InvalidFEOpcode))
+}
+
+fn is_assert_panic(data: &[u8]) -> bool {
+    const PANIC_SELECTOR: [u8; 4] = [0x4e, 0x48, 0x7b, 0x71];
+    if data.len() < 36 || data[..4] != PANIC_SELECTOR {
+        return false;
+    }
+
+    let panic_code = &data[4..36];
+    panic_code[..31].iter().all(|byte| *byte == 0) && panic_code[31] == 0x01
 }
 
 /// Given the executor state, asserts that no invariant has been broken. Otherwise, it fills the
@@ -163,8 +186,11 @@ pub(crate) fn can_continue(
         // Increase the amount of reverts.
         let invariant_data = &mut invariant_test.test_data;
         invariant_data.failures.reverts += 1;
-        // If fail on revert is set, we must return immediately.
-        if invariant_config.fail_on_revert {
+        let is_assert_failure = is_assertion_failure(&call_result);
+        let should_fail_on_assert = invariant_config.fail_on_assert && is_assert_failure;
+
+        // If fail-on-assert or fail-on-revert is set, we must return immediately.
+        if should_fail_on_assert || invariant_config.fail_on_revert {
             let case_data = FailedInvariantCaseData::new(
                 invariant_contract,
                 invariant_config,
@@ -174,7 +200,11 @@ pub(crate) fn can_continue(
                 &[],
             );
             invariant_data.failures.revert_reason = Some(case_data.revert_reason.clone());
-            invariant_data.failures.error = Some(InvariantFuzzError::Revert(case_data));
+            invariant_data.failures.error = Some(if should_fail_on_assert {
+                InvariantFuzzError::BrokenInvariant(case_data)
+            } else {
+                InvariantFuzzError::Revert(case_data)
+            });
 
             return Ok(RichInvariantResults::new(false, None));
         } else if call_result.reverted && !is_optimization {
@@ -210,4 +240,41 @@ pub(crate) fn assert_after_invariant(
         invariant_test.set_error(InvariantFuzzError::BrokenInvariant(case_data));
     }
     Ok(success)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alloy_primitives::Bytes;
+
+    fn panic_payload(code: u8) -> Bytes {
+        let mut payload = vec![0_u8; 36];
+        payload[..4].copy_from_slice(&[0x4e, 0x48, 0x7b, 0x71]);
+        payload[35] = code;
+        payload.into()
+    }
+
+    #[test]
+    fn detects_assert_panic_code() {
+        let call_result =
+            RawCallResult { reverted: true, result: panic_payload(0x01), ..Default::default() };
+        assert!(is_assertion_failure(&call_result));
+    }
+
+    #[test]
+    fn ignores_non_assert_panic_code() {
+        let call_result =
+            RawCallResult { reverted: true, result: panic_payload(0x11), ..Default::default() };
+        assert!(!is_assertion_failure(&call_result));
+    }
+
+    #[test]
+    fn detects_legacy_invalid_opcode_assert() {
+        let call_result = RawCallResult {
+            reverted: true,
+            exit_reason: Some(InstructionResult::InvalidFEOpcode),
+            ..Default::default()
+        };
+        assert!(is_assertion_failure(&call_result));
+    }
 }

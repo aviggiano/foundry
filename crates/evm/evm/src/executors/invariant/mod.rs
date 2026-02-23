@@ -35,7 +35,7 @@ use foundry_evm_traces::{CallTraceArena, SparsedTraceArena};
 use indicatif::ProgressBar;
 use parking_lot::RwLock;
 use proptest::{strategy::Strategy, test_runner::TestRunner};
-use result::{assert_after_invariant, assert_invariants, can_continue};
+use result::{assert_after_invariant, assert_invariants, can_continue, is_assertion_failure};
 use revm::state::Account;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -502,7 +502,9 @@ impl<'a> InvariantExecutor<'a> {
                         // Skip invariant check but still track reverts
                         if call_result.reverted {
                             invariant_test.test_data.failures.reverts += 1;
-                            if self.config.fail_on_revert {
+                            let should_fail_on_assert =
+                                self.config.fail_on_assert && is_assertion_failure(&call_result);
+                            if should_fail_on_assert || self.config.fail_on_revert {
                                 let case_data = error::FailedInvariantCaseData::new(
                                     &invariant_contract,
                                     &self.config,
@@ -514,7 +516,11 @@ impl<'a> InvariantExecutor<'a> {
                                 invariant_test.test_data.failures.revert_reason =
                                     Some(case_data.revert_reason.clone());
                                 invariant_test.test_data.failures.error =
-                                    Some(InvariantFuzzError::Revert(case_data));
+                                    Some(if should_fail_on_assert {
+                                        InvariantFuzzError::BrokenInvariant(case_data)
+                                    } else {
+                                        InvariantFuzzError::Revert(case_data)
+                                    });
                                 result::RichInvariantResults::new(false, None)
                             } else if !invariant_contract.is_optimization() {
                                 // In optimization mode, keep reverted calls to preserve
