@@ -12,7 +12,9 @@ use alloy_dyn_abi::{DynSolValue, JsonAbiExt};
 use alloy_json_abi::Function;
 use alloy_primitives::{Address, Bytes, U256, address, map::HashMap};
 use eyre::Result;
-use foundry_common::{TestFunctionExt, TestFunctionKind, contracts::ContractsByAddress, sh_println};
+use foundry_common::{
+    TestFunctionExt, TestFunctionKind, contracts::ContractsByAddress, sh_println,
+};
 use foundry_compilers::utils::canonicalized;
 use foundry_config::{Config, FuzzCorpusConfig};
 use foundry_evm::{
@@ -22,8 +24,8 @@ use foundry_evm::{
         CallResult, EvmError, Executor, ITest, RawCallResult,
         fuzz::FuzzedExecutor,
         invariant::{
-            InvariantExecutor, InvariantFuzzError, check_sequence, generate_counterexample,
-            replay_error, replay_run,
+            ASSERTION_FAILURE_KEY_PREFIX, InvariantExecutor, InvariantFuzzError, check_sequence,
+            generate_counterexample, replay_error, replay_run,
         },
     },
     fuzz::{
@@ -924,11 +926,26 @@ impl<'a> FunctionRunner<'a> {
 
         let mut counterexample = None;
         let success = invariant_result.errors.is_empty();
-        let reason = invariant_result
+        let main_reason = invariant_result
             .errors
             .get(&invariant_contract.invariant_fn.name)
             .and_then(|err| err.revert_reason());
+        let assertion_failure = invariant_result.errors.iter().find_map(|(name, error)| {
+            name.strip_prefix(ASSERTION_FAILURE_KEY_PREFIX)
+                .map(|handler| (handler.to_string(), error))
+        });
+        let assertion_reason = assertion_failure.as_ref().map(|(handler, error)| {
+            let revert_reason =
+                error.revert_reason().unwrap_or_else(|| "assertion failure".to_string());
+            format!("assertion failure in {handler}: {revert_reason}")
+        });
+        let reason = main_reason.clone().or_else(|| assertion_reason.clone());
         let mut other_failures = vec![];
+        if main_reason.is_some() {
+            if let Some(assertion_reason) = assertion_reason {
+                other_failures.push(assertion_reason);
+            }
+        }
 
         if success {
             // If invariants ran successfully, replay the last run to collect logs and
@@ -949,7 +966,10 @@ impl<'a> FunctionRunner<'a> {
             }
         } else {
             // check if main invariant was broken and replay error
-            if let Some(error) = invariant_result.errors.get(&invariant_contract.invariant_fn.name)
+            if let Some(error) = invariant_result
+                .errors
+                .get(&invariant_contract.invariant_fn.name)
+                .or_else(|| assertion_failure.as_ref().map(|(_, error)| *error))
                 && let InvariantFuzzError::BrokenInvariant(case_data)
                 | InvariantFuzzError::Revert(case_data) = error
                 && let TestError::Fail(_, ref calls) = case_data.test_error
