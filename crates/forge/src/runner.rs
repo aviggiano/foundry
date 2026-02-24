@@ -899,11 +899,32 @@ impl<'a> FunctionRunner<'a> {
                     }
                 }
 
-                self.result.invariant_replay_fail(
-                    replayed_entirely,
-                    &invariant_contract.invariant_fn.name,
-                    call_sequence,
-                );
+                let replay_label = if invariant_config.fail_on_assert {
+                    let assert_only_failure = check_sequence(
+                        self.clone_executor(),
+                        &txes,
+                        (0..min(txes.len(), invariant_config.depth as usize)).collect(),
+                        invariant_contract.address,
+                        invariant_contract.invariant_fn.selector().to_vec().into(),
+                        false,
+                        false,
+                        invariant_contract.call_after_invariant,
+                    )
+                    .map(|(success, _)| success)
+                    .unwrap_or(false);
+                    if assert_only_failure {
+                        call_sequence
+                            .last()
+                            .and_then(|counterexample| counterexample.func_name.clone())
+                            .map(|handler| format!("assertion failure in {handler}"))
+                            .unwrap_or_else(|| invariant_contract.invariant_fn.name.clone())
+                    } else {
+                        invariant_contract.invariant_fn.name.clone()
+                    }
+                } else {
+                    invariant_contract.invariant_fn.name.clone()
+                };
+                self.result.invariant_replay_fail(replayed_entirely, &replay_label, call_sequence);
                 return self.result;
             }
         }
