@@ -79,6 +79,16 @@ fn is_assert_panic(data: &[u8]) -> bool {
     panic_code[..31].iter().all(|byte| *byte == 0) && panic_code[31] == 0x01
 }
 
+fn failing_handler_name(
+    invariant_test: &InvariantTest,
+    invariant_run: &InvariantTestRun,
+) -> Option<String> {
+    let last_input = invariant_run.inputs.last()?;
+    let metric_key =
+        invariant_test.targeted_contracts.targets.lock().fuzzed_metric_key(last_input)?;
+    Some(metric_key.rsplit('.').next().unwrap_or(metric_key.as_str()).to_string())
+}
+
 /// Given the executor state, asserts that no invariant has been broken. Otherwise, it fills the
 /// external `invariant_failures.failed_invariant` map and returns a generic error.
 /// Either returns the call result if successful, or nothing if there was an error.
@@ -183,11 +193,16 @@ pub(crate) fn can_continue(
             }
         }
     } else {
+        let is_assert_failure = is_assertion_failure(&call_result);
+        let should_fail_on_assert = invariant_config.fail_on_assert && is_assert_failure;
+        let failing_handler = if should_fail_on_assert {
+            failing_handler_name(invariant_test, invariant_run)
+        } else {
+            None
+        };
         // Increase the amount of reverts.
         let invariant_data = &mut invariant_test.test_data;
         invariant_data.failures.reverts += 1;
-        let is_assert_failure = is_assertion_failure(&call_result);
-        let should_fail_on_assert = invariant_config.fail_on_assert && is_assert_failure;
 
         // If fail-on-assert or fail-on-revert is set, we must return immediately.
         if should_fail_on_assert || invariant_config.fail_on_revert {
@@ -198,7 +213,8 @@ pub(crate) fn can_continue(
                 &invariant_run.inputs,
                 call_result,
                 &[],
-            );
+            )
+            .with_failing_handler(failing_handler);
             invariant_data.failures.revert_reason = Some(case_data.revert_reason.clone());
             invariant_data.failures.error = Some(if should_fail_on_assert {
                 InvariantFuzzError::BrokenInvariant(case_data)

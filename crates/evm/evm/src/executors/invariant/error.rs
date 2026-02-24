@@ -3,7 +3,7 @@ use crate::executors::RawCallResult;
 use alloy_primitives::{Address, Bytes};
 use foundry_config::InvariantConfig;
 use foundry_evm_core::decode::RevertDecoder;
-use foundry_evm_fuzz::{BasicTxDetails, Reason, invariant::FuzzRunIdentifiedContracts};
+use foundry_evm_fuzz::{invariant::FuzzRunIdentifiedContracts, BasicTxDetails, Reason};
 use proptest::test_runner::TestError;
 
 /// Stores information about failures and reverts of the invariant tests.
@@ -67,6 +67,8 @@ pub struct FailedInvariantCaseData {
     pub fail_on_revert: bool,
     /// Fail on Solidity assert failures, used to check sequence when shrinking.
     pub fail_on_assert: bool,
+    /// Handler function that triggered a fail-on-assert violation, when available.
+    pub failing_handler: Option<String>,
 }
 
 impl FailedInvariantCaseData {
@@ -100,6 +102,12 @@ impl FailedInvariantCaseData {
             shrink_run_limit: invariant_config.shrink_run_limit,
             fail_on_revert: invariant_config.fail_on_revert,
             fail_on_assert: invariant_config.fail_on_assert,
+            failing_handler: None,
         }
+    }
+
+    pub fn with_failing_handler(mut self, failing_handler: Option<String>) -> Self {
+        self.failing_handler = failing_handler;
+        self
     }
 }
