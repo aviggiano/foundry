@@ -21,6 +21,8 @@ use std::{borrow::Cow, collections::HashMap};
 #[derive(Debug)]
 pub struct InvariantFuzzTestResult {
     pub error: Option<InvariantFuzzError>,
+    /// Distinct handler-level assertion failures observed during the campaign.
+    pub assertion_failures: Vec<String>,
     /// Every successful fuzz test case
     pub cases: Vec<FuzzedCases>,
     /// Number of reverted fuzz calls
@@ -204,8 +206,8 @@ pub(crate) fn can_continue(
         let invariant_data = &mut invariant_test.test_data;
         invariant_data.failures.reverts += 1;
 
-        // If fail-on-assert or fail-on-revert is set, we must return immediately.
-        if should_fail_on_assert || invariant_config.fail_on_revert {
+        // In fail-on-assert mode, keep exploring and accumulate unique assertion failures.
+        if should_fail_on_assert {
             let case_data = FailedInvariantCaseData::new(
                 invariant_contract,
                 invariant_config,
@@ -216,12 +218,23 @@ pub(crate) fn can_continue(
             )
             .with_failing_handler(failing_handler);
             invariant_data.failures.revert_reason = Some(case_data.revert_reason.clone());
-            invariant_data.failures.error = Some(if should_fail_on_assert {
-                InvariantFuzzError::BrokenInvariant(case_data)
-            } else {
-                InvariantFuzzError::Revert(case_data)
-            });
-
+            invariant_data.failures.record_assertion_failure(case_data);
+            if !is_optimization {
+                // Keep shrinking/replay coherent by discarding reverted calls in check mode.
+                invariant_run.inputs.pop();
+            }
+            return Ok(RichInvariantResults::new(true, None));
+        } else if invariant_config.fail_on_revert {
+            let case_data = FailedInvariantCaseData::new(
+                invariant_contract,
+                invariant_config,
+                &invariant_test.targeted_contracts,
+                &invariant_run.inputs,
+                call_result,
+                &[],
+            );
+            invariant_data.failures.revert_reason = Some(case_data.revert_reason.clone());
+            invariant_data.failures.error = Some(InvariantFuzzError::Revert(case_data));
             return Ok(RichInvariantResults::new(false, None));
         } else if call_result.reverted && !is_optimization {
             // If we don't fail test on revert then remove last reverted call from inputs.

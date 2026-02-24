@@ -893,6 +893,7 @@ impl<'a> FunctionRunner<'a> {
         self.result.merge_coverages(invariant_result.line_coverage);
 
         let mut counterexample = None;
+        let assertion_failures = invariant_result.assertion_failures.clone();
         let success = invariant_result.error.is_none();
         let mut reason = invariant_result.error.as_ref().and_then(|err| err.revert_reason());
 
@@ -909,7 +910,19 @@ impl<'a> FunctionRunner<'a> {
                         } else {
                             case_data.revert_reason.clone()
                         };
-                        reason = Some(format!("assertion failure in {handler}: {assert_reason}"));
+                        let extra_handlers: Vec<_> = assertion_failures
+                            .iter()
+                            .filter(|name| name.as_str() != handler.as_str())
+                            .cloned()
+                            .collect();
+                        reason = Some(if extra_handlers.is_empty() {
+                            format!("assertion failure in {handler}: {assert_reason}")
+                        } else {
+                            format!(
+                                "assertion failure in {handler}: {assert_reason}; other assertion failures in {}",
+                                extra_handlers.join(", ")
+                            )
+                        });
                     }
                     // Replay error to create counterexample and to collect logs, traces and
                     // coverage.
@@ -1016,6 +1029,16 @@ impl<'a> FunctionRunner<'a> {
                     }
                 }
             }
+        }
+
+        if !assertion_failures.is_empty()
+            && !reason.as_ref().is_some_and(|r| r.contains("assertion failure in"))
+        {
+            let summary = format!("assertion failures in {}", assertion_failures.join(", "));
+            reason = Some(match reason {
+                Some(existing) => format!("{existing}; {summary}"),
+                None => summary,
+            });
         }
 
         self.result.invariant_result(
