@@ -17,6 +17,8 @@ use revm::interpreter::InstructionResult;
 use revm_inspectors::tracing::CallTraceArena;
 use std::{borrow::Cow, collections::HashMap};
 
+pub const ASSERTION_FAILURE_KEY_PREFIX: &str = "assertion_failure::";
+
 /// The outcome of an invariant fuzz test
 #[derive(Debug)]
 pub struct InvariantFuzzTestResult {
@@ -157,6 +159,17 @@ fn invariant_inner_sequence(executor: &Executor) -> Vec<Option<BasicTxDetails>> 
     seq
 }
 
+fn failing_handler_key(
+    invariant_test: &InvariantTest,
+    invariant_run: &InvariantTestRun,
+) -> Option<String> {
+    let last_input = invariant_run.inputs.last()?;
+    let metric_key =
+        invariant_test.targeted_contracts.targets.lock().fuzzed_metric_key(last_input)?;
+    let handler = metric_key.rsplit('.').next().unwrap_or(metric_key.as_str());
+    Some(format!("{ASSERTION_FAILURE_KEY_PREFIX}{handler}"))
+}
+
 /// Returns if invariant test can continue and last successful call result of the invariant test
 /// function (if it can continue).
 ///
@@ -181,7 +194,6 @@ pub(crate) fn can_continue(
         })
     };
 
-    let failures = &mut invariant_test.test_data.failures;
     // Assert invariants if the call did not revert and the handlers did not fail.
     if !call_result.reverted && handlers_succeeded() {
         if let Some(traces) = call_result.traces {
@@ -193,12 +205,20 @@ pub(crate) fn can_continue(
             &invariant_test.targeted_contracts,
             &invariant_run.executor,
             &invariant_run.inputs,
-            failures,
+            &mut invariant_test.test_data.failures,
         )?;
     } else {
+        let should_fail_on_assert =
+            invariant_config.fail_on_assert && is_assertion_failure(&call_result);
+        let handler_failure_key = if should_fail_on_assert {
+            failing_handler_key(invariant_test, invariant_run)
+        } else {
+            None
+        };
+        let failures = &mut invariant_test.test_data.failures;
         // Increase the amount of reverts.
         failures.reverts += 1;
-        let should_fail_on_assert = invariant_config.fail_on_assert && is_assertion_failure(&call_result);
+        let mut assertion_emitted = false;
         // If fail on revert is set for an invariant, or this is an assert failure and
         // fail-on-assert is enabled, record invariant failure.
         for (invariant, fail_on_revert) in &invariant_contract.invariant_fns {
@@ -213,14 +233,18 @@ pub(crate) fn can_continue(
                     &call_result,
                     &[],
                 );
-                failures.errors.insert(
-                    invariant.name.clone(),
-                    if should_fail_on_assert {
-                        InvariantFuzzError::BrokenInvariant(case_data)
-                    } else {
-                        InvariantFuzzError::Revert(case_data)
-                    },
-                );
+                let error = if should_fail_on_assert {
+                    InvariantFuzzError::BrokenInvariant(case_data)
+                } else {
+                    InvariantFuzzError::Revert(case_data)
+                };
+                if should_fail_on_assert && !assertion_emitted {
+                    if let Some(key) = handler_failure_key.as_ref() {
+                        failures.errors.insert(key.clone(), error.clone());
+                    }
+                    assertion_emitted = true;
+                }
+                failures.errors.insert(invariant.name.clone(), error);
             }
         }
         // Remove last reverted call from inputs.
@@ -228,7 +252,7 @@ pub(crate) fn can_continue(
         invariant_run.inputs.pop();
     }
     // Stop execution if all invariants are broken.
-    Ok(failures.can_continue(invariant_contract.invariant_fns.len()))
+    Ok(invariant_test.test_data.failures.can_continue(invariant_contract.invariant_fns.len()))
 }
 
 /// Given the executor state, asserts conditions within `afterInvariant` function.

@@ -54,7 +54,7 @@ mod replay;
 pub use replay::{generate_counterexample, replay_error, replay_run};
 
 mod result;
-pub use result::InvariantFuzzTestResult;
+pub use result::{ASSERTION_FAILURE_KEY_PREFIX, InvariantFuzzTestResult};
 
 mod shrink;
 pub use shrink::check_sequence;
