@@ -12,7 +12,9 @@ use alloy_dyn_abi::{DynSolValue, JsonAbiExt};
 use alloy_json_abi::Function;
 use alloy_primitives::{Address, Bytes, U256, address, map::HashMap};
 use eyre::Result;
-use foundry_common::{TestFunctionExt, TestFunctionKind, contracts::ContractsByAddress, sh_println};
+use foundry_common::{
+    TestFunctionExt, TestFunctionKind, contracts::ContractsByAddress, sh_println,
+};
 use foundry_compilers::utils::canonicalized;
 use foundry_config::{Config, FuzzCorpusConfig};
 use foundry_evm::{
@@ -769,6 +771,7 @@ impl<'a> FunctionRunner<'a> {
         let mut evm = InvariantExecutor::new(
             executor,
             runner,
+            self.config.fuzz.seed,
             config,
             identified_contracts,
             &self.cr.mcr.known_contracts,

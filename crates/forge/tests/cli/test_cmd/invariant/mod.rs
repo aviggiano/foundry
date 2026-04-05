@@ -998,6 +998,59 @@ Ran 3 test suites [ELAPSED]: 6 tests passed, 0 failed, 0 skipped (6 total tests)
     );
 });
 
+// Regression for single-suite invariant campaigns: with `--threads > 1` we should spawn
+// invariant workers even when running a single contract.
+forgetest_init!(invariant_single_suite_uses_parallel_workers, |prj, cmd| {
+    prj.add_source(
+        "Counter.sol",
+        r#"
+contract Counter {
+    uint256 public number;
+
+    function bump(uint256 x) public {
+        number += x;
+    }
+}
+   "#,
+    );
+    prj.add_test(
+        "ParallelInvariantTest.t.sol",
+        r#"
+import {Test} from "forge-std/Test.sol";
+import {Counter} from "../src/Counter.sol";
+
+contract ParallelInvariantTest is Test {
+    Counter counter;
+
+    function setUp() public {
+        counter = new Counter();
+    }
+
+    function invariant_single_suite_parallel() public view {
+        assertGe(counter.number(), 0);
+    }
+}
+   "#,
+    );
+    prj.update_config(|config| {
+        config.invariant.runs = 8;
+        config.invariant.depth = 5;
+        config.invariant.show_metrics = false;
+        config.invariant.corpus.corpus_dir = Some("invariant_corpus".into());
+    });
+
+    cmd.args(["test", "--threads", "2", "--mt", "invariant_single_suite_parallel"])
+        .assert_success();
+
+    let corpus_root = prj
+        .root()
+        .join("invariant_corpus")
+        .join("ParallelInvariantTest")
+        .join("invariant_single_suite_parallel");
+    assert!(corpus_root.join("worker0").join("corpus").exists());
+    assert!(corpus_root.join("worker1").join("corpus").exists());
+});
+
 forgetest_init!(continous_run, |prj, cmd| {
     prj.update_config(|config| {
         config.invariant.runs = 10;

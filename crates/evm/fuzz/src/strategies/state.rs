@@ -81,6 +81,18 @@ impl EvmFuzzState {
         self
     }
 
+    /// Creates an independent copy of the fuzz state dictionary.
+    ///
+    /// Unlike [`Clone`], this does not share the underlying lock and is safe to use for
+    /// per-worker mutable fuzzing state.
+    pub fn fork(&self) -> Self {
+        Self {
+            inner: Arc::new(RwLock::new(self.inner.read().clone())),
+            deployed_libs: self.deployed_libs.clone(),
+            mapping_slots: self.mapping_slots.clone(),
+        }
+    }
+
     pub fn collect_values(&self, values: impl IntoIterator<Item = B256>) {
         let mut dict = self.inner.write();
         for value in values {
@@ -141,6 +153,7 @@ impl EvmFuzzState {
 
 // We're using `IndexSet` to have a stable element order when restoring persisted state, as well as
 // for performance when iterating over the sets.
+#[derive(Clone)]
 pub struct FuzzDictionary {
     /// Collected state values.
     state_values: B256IndexSet,

@@ -98,6 +98,14 @@ impl FuzzRunIdentifiedContracts {
             }
         }
     }
+
+    /// Creates an independent copy of targeted contracts for worker-local mutation.
+    pub fn fork(&self) -> Self {
+        Self {
+            targets: Arc::new(Mutex::new(self.targets.lock().clone())),
+            is_updatable: self.is_updatable,
+        }
+    }
 }
 
 /// A collection of contracts identified as targets for invariant testing.
