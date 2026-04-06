@@ -159,6 +159,7 @@ struct InvariantWorkerResult {
 /// Shared campaign state for coordinating parallel invariant workers.
 struct SharedInvariantState {
     next_run: Arc<AtomicU32>,
+    first_failure_run: Arc<AtomicU32>,
     timer: FuzzTestTimer,
     global_early_exit: EarlyExit,
     local_early_exit: EarlyExit,
@@ -171,6 +172,7 @@ impl SharedInvariantState {
     fn new(timeout: Option<u32>, early_exit: EarlyExit) -> Self {
         Self {
             next_run: Arc::new(AtomicU32::new(0)),
+            first_failure_run: Arc::new(AtomicU32::new(u32::MAX)),
             timer: FuzzTestTimer::new(timeout),
             global_early_exit: early_exit,
             local_early_exit: EarlyExit::new(true),
@@ -184,6 +186,10 @@ impl SharedInvariantState {
         !(self.global_early_exit.should_stop()
             || self.local_early_exit.should_stop()
             || self.timer.is_timed_out())
+    }
+
+    fn should_skip_run(&self, run_idx: u32) -> bool {
+        self.first_failure_run.load(Ordering::Relaxed) <= run_idx
     }
 
     /// Claims a run index for a worker, or returns `None` if the campaign is done.
@@ -208,14 +214,26 @@ impl SharedInvariantState {
         }
     }
 
-    fn record_terminal_failure(&self) {
+    fn record_terminal_failure(&self, run_idx: u32) {
+        let mut current = self.first_failure_run.load(Ordering::Relaxed);
+        while run_idx < current {
+            match self.first_failure_run.compare_exchange_weak(
+                current,
+                run_idx,
+                Ordering::Relaxed,
+                Ordering::Relaxed,
+            ) {
+                Ok(_) => break,
+                Err(actual) => current = actual,
+            }
+        }
         self.local_early_exit.record_failure();
     }
 
-    fn record_unique_failure(&self, total_invariants: usize) {
+    fn record_unique_failure(&self, total_invariants: usize, run_idx: u32) {
         let count = self.unique_failures.fetch_add(1, Ordering::Relaxed) + 1;
         if count >= total_invariants {
-            self.local_early_exit.record_failure();
+            self.record_terminal_failure(run_idx);
         }
     }
 }
@@ -428,7 +446,7 @@ impl<'a> InvariantExecutor<'a> {
         let max_workers = Ord::max(1, config.runs / MIN_RUNS_PER_WORKER) as usize;
         let mut num_workers = Ord::min(rayon::current_num_threads(), max_workers);
         // `call_override` keeps mutable per-run state in the inspector and is not worker-safe.
-        if config.call_override {
+        if config.call_override || seed.is_some() {
             num_workers = 1;
         }
 
@@ -499,7 +517,19 @@ impl<'a> InvariantExecutor<'a> {
         let sync_threshold = SYNC_INTERVAL + worker_id as u32 * 100;
         let mut last_run_timestamp = 0u128;
 
-        'campaign: while let Some(_run_idx) = shared_state.claim_run(self.config.runs) {
+        'campaign: while let Some(run_idx) = shared_state.claim_run(self.config.runs) {
+            if shared_state.should_skip_run(run_idx) {
+                break;
+            }
+
+            let run_seed = self.run_seed(run_idx);
+            if let Some(run_seed) = run_seed {
+                setup.invariant_test.test_data.branch_runner = self.runner_with_seed(run_seed);
+                if let Some(cheats) = setup.executor.inspector_mut().cheatcodes.as_mut() {
+                    cheats.set_seed(run_seed);
+                }
+            }
+
             runs_since_sync += 1;
             if runs_since_sync >= sync_threshold {
                 let timer = Instant::now();
@@ -543,6 +573,12 @@ impl<'a> InvariantExecutor<'a> {
                     .last()
                     .ok_or_else(|| eyre!("no input generated to call fuzzed target."))?;
 
+                if let Some(run_seed) = run_seed
+                    && let Some(cheats) = current_run.executor.inspector_mut().cheatcodes.as_mut()
+                {
+                    cheats.set_seed(run_seed.wrapping_add(U256::from(current_run.depth)));
+                }
+
                 let mut call_result = execute_tx(&mut current_run.executor, tx)?;
                 let discarded = call_result.result.as_ref() == MAGIC_ASSUME;
                 if self.config.show_metrics {
@@ -565,9 +601,10 @@ impl<'a> InvariantExecutor<'a> {
                         self.merge_worker_failures(
                             &setup.invariant_test.test_data.failures,
                             invariant_contract.invariant_fns.len(),
+                            run_idx,
                             shared_state,
                         );
-                        shared_state.record_terminal_failure();
+                        shared_state.record_terminal_failure(run_idx);
                         break 'campaign;
                     }
                 } else {
@@ -612,6 +649,7 @@ impl<'a> InvariantExecutor<'a> {
                     self.merge_worker_failures(
                         &setup.invariant_test.test_data.failures,
                         invariant_contract.invariant_fns.len(),
+                        run_idx,
                         shared_state,
                     );
 
@@ -619,7 +657,7 @@ impl<'a> InvariantExecutor<'a> {
                         setup.invariant_test.set_last_run_inputs(&current_run.inputs);
                     }
                     if !can_continue {
-                        shared_state.record_terminal_failure();
+                        shared_state.record_terminal_failure(run_idx);
                         break 'campaign;
                     }
                     current_run.depth += 1;
@@ -631,6 +669,10 @@ impl<'a> InvariantExecutor<'a> {
                     discarded,
                     current_run.depth as usize,
                 )?);
+            }
+
+            if shared_state.should_skip_run(run_idx) {
+                break 'campaign;
             }
 
             setup.corpus_manager.process_inputs(&current_run.inputs, current_run.new_coverage);
@@ -649,8 +691,13 @@ impl<'a> InvariantExecutor<'a> {
                 self.merge_worker_failures(
                     &setup.invariant_test.test_data.failures,
                     invariant_contract.invariant_fns.len(),
+                    run_idx,
                     shared_state,
                 );
+            }
+
+            if shared_state.should_skip_run(run_idx) {
+                break 'campaign;
             }
 
             setup.invariant_test.end_run(current_run, self.config.gas_report_samples as usize);
@@ -719,6 +766,7 @@ impl<'a> InvariantExecutor<'a> {
         &self,
         failures: &InvariantFailures,
         total_invariants: usize,
+        run_idx: u32,
         shared_state: &SharedInvariantState,
     ) {
         if failures.errors.is_empty() {
@@ -737,7 +785,7 @@ impl<'a> InvariantExecutor<'a> {
         }
 
         for _ in 0..newly_recorded {
-            shared_state.record_unique_failure(total_invariants);
+            shared_state.record_unique_failure(total_invariants, run_idx);
         }
     }
 
@@ -879,6 +927,20 @@ impl<'a> InvariantExecutor<'a> {
         } else {
             TestRunner::new(runner_config)
         }
+    }
+
+    fn runner_with_seed(&self, seed: U256) -> TestRunner {
+        let mut runner_config = self.runner.config().clone();
+        runner_config.cases = self.config.runs.max(1);
+        let rng = TestRng::from_seed(RngAlgorithm::ChaCha, &seed.to_be_bytes::<32>());
+        TestRunner::new_with_rng(runner_config, rng)
+    }
+
+    fn run_seed(&self, run_idx: u32) -> Option<U256> {
+        self.seed.map(|seed| {
+            let seed_data = [&seed.to_be_bytes::<32>()[..], &run_idx.to_be_bytes()[..]].concat();
+            U256::from_be_bytes(keccak256(seed_data).0)
+        })
     }
 
     /// Prepares shared campaign structures needed for all invariant workers.
