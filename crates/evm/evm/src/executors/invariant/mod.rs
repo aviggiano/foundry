@@ -446,7 +446,7 @@ impl<'a> InvariantExecutor<'a> {
         let max_workers = Ord::max(1, config.runs / MIN_RUNS_PER_WORKER) as usize;
         let mut num_workers = Ord::min(rayon::current_num_threads(), max_workers);
         // `call_override` keeps mutable per-run state in the inspector and is not worker-safe.
-        if config.call_override || seed.is_some() {
+        if config.call_override {
             num_workers = 1;
         }
 
@@ -485,6 +485,19 @@ impl<'a> InvariantExecutor<'a> {
         let shared_state = SharedInvariantState::new(self.config.timeout, early_exit.clone());
 
         debug!(n = self.num_workers, "spawning invariant workers");
+        // Export initial master corpus before worker threads start syncing. This avoids a race
+        // where non-master workers can stamp `last_sync_timestamp` before master exports.
+        if self.num_workers > 1 {
+            let mut master = self.prepare_worker(0, &prepared, fuzz_fixtures)?;
+            master.corpus_manager.sync(
+                self.num_workers,
+                &master.executor,
+                None,
+                Some(&master.invariant_test.targeted_contracts),
+                &shared_state.global_corpus_metrics,
+            )?;
+        }
+
         let worker_results = (0..self.num_workers)
             .into_par_iter()
             .map(|id| {
@@ -513,8 +526,8 @@ impl<'a> InvariantExecutor<'a> {
     ) -> Result<InvariantWorkerResult> {
         let worker_id = setup.id;
         let mut last_metrics_report = Instant::now();
-        let mut runs_since_sync = SYNC_INTERVAL + worker_id as u32 * 100;
         let sync_threshold = SYNC_INTERVAL + worker_id as u32 * 100;
+        let mut runs_since_sync = if worker_id == 0 { 0 } else { sync_threshold };
         let mut last_run_timestamp = 0u128;
 
         'campaign: while let Some(run_idx) = shared_state.claim_run(self.config.runs) {
