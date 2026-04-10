@@ -208,6 +208,7 @@ fn handle_assertion_result_mono<CTX: ContextTr<Db: DatabaseExt>>(
     executor: &mut dyn CheatcodesExecutor<CTX>,
     msg: Cow<'_, str>,
 ) -> Result {
+    ccx.state.assertion_failure = true;
     if ccx.state.config.assertions_revert {
         Err(msg.into_owned().into())
     } else {

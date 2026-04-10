@@ -1,5 +1,17 @@
 use super::*;
 
+fn assert_invariant_assertion_failure(cmd: &mut TestCommand) -> OutputAssert {
+    cmd.assert_with(&[
+        ("[RUNS]", r"runs: \d+, calls: \d+, reverts: \d+"),
+        (
+            "[SUMMARY]",
+            r"[A-Za-z_][A-Za-z0-9_]* \(runs: \d+, calls: \d+, reverts: \d+, failures: \d+\)( \(\d+ tx/s, \d+ gas/s\))?",
+        ),
+        ("[SEQUENCE]", r"\[Sequence\].*(\n\t\t.*)*"),
+        ("[STATS]", r"╭[\s\S]*?╰.*"),
+    ])
+}
+
 forgetest!(invariant_after_invariant, |prj, cmd| {
     prj.insert_vm();
     prj.insert_ds_test();
@@ -703,6 +715,132 @@ Encountered 1 failing test in test/InvariantHandlerFailure.t.sol:InvariantHandle
 [FAIL: failed on revert]
 	[SEQUENCE]
  statefulFuzz_BrokenInvariant() ([RUNS])
+
+Encountered a total of 1 failing tests, 0 tests succeeded
+
+Tip: Run `forge test --rerun` to retry only the 1 failed test
+
+[SEED] (use `--fuzz-seed` to reproduce)
+
+"#]]);
+});
+
+forgetest_init!(invariant_fail_on_assert_detects_solidity_assert, |prj, cmd| {
+    prj.update_config(|config| {
+        config.invariant.fail_on_assert = true;
+        config.invariant.fail_on_revert = false;
+        config.invariant.runs = 1;
+        config.invariant.depth = 1;
+    });
+
+    prj.add_test(
+        "InvariantFailOnAssertSolidity.t.sol",
+        r#"
+import "forge-std/Test.sol";
+
+contract Handler {
+    function solidityAssert() external pure {
+        assert(false);
+    }
+}
+
+contract InvariantFailOnAssertSolidity is Test {
+    Handler handler;
+
+    function setUp() public {
+        handler = new Handler();
+
+        bytes4[] memory selectors = new bytes4[](1);
+        selectors[0] = handler.solidityAssert.selector;
+        targetSelector(FuzzSelector({addr: address(handler), selectors: selectors}));
+    }
+
+    function invariant_detects_solidity_assertion() public view {}
+}
+"#,
+    );
+
+    assert_invariant_assertion_failure(cmd.args(["test"])).failure().stdout_eq(str![[r#"
+...
+Ran 1 test for test/InvariantFailOnAssertSolidity.t.sol:InvariantFailOnAssertSolidity
+[FAIL: Assertion: panic: assertion failed (0x01) in solidityAssert]
+	[SEQUENCE]
+ [SUMMARY]
+
+[STATS]
+
+Suite result: FAILED. 0 passed; 1 failed; 0 skipped; [ELAPSED]
+
+Ran 1 test suite [ELAPSED]: 0 tests passed, 1 failed, 0 skipped (1 total tests)
+
+Failing tests:
+Encountered 1 failing test in test/InvariantFailOnAssertSolidity.t.sol:InvariantFailOnAssertSolidity
+[FAIL: Assertion: panic: assertion failed (0x01) in solidityAssert]
+	[SEQUENCE]
+ [SUMMARY]
+
+Encountered a total of 1 failing tests, 0 tests succeeded
+
+Tip: Run `forge test --rerun` to retry only the 1 failed test
+
+[SEED] (use `--fuzz-seed` to reproduce)
+
+"#]]);
+});
+
+forgetest_init!(invariant_fail_on_assert_detects_foundry_helpers, |prj, cmd| {
+    prj.update_config(|config| {
+        config.invariant.fail_on_assert = true;
+        config.invariant.fail_on_revert = false;
+        config.invariant.runs = 1;
+        config.invariant.depth = 1;
+    });
+
+    prj.add_test(
+        "InvariantFailOnAssertFoundry.t.sol",
+        r#"
+import "forge-std/Test.sol";
+
+contract Handler is Test {
+    function foundryAssertTrue() external view {
+        assertTrue(false);
+    }
+}
+
+contract InvariantFailOnAssertFoundry is Test {
+    Handler handler;
+
+    function setUp() public {
+        handler = new Handler();
+
+        bytes4[] memory selectors = new bytes4[](1);
+        selectors[0] = handler.foundryAssertTrue.selector;
+        targetSelector(FuzzSelector({addr: address(handler), selectors: selectors}));
+    }
+
+    function invariant_detects_foundry_assertion() public view {}
+}
+"#,
+    );
+
+    assert_invariant_assertion_failure(cmd.args(["test"])).failure().stdout_eq(str![[r#"
+...
+Ran 1 test for test/InvariantFailOnAssertFoundry.t.sol:InvariantFailOnAssertFoundry
+[FAIL: Assertion: assertion failed in foundryAssertTrue]
+	[SEQUENCE]
+ [SUMMARY]
+
+[STATS]
+
+Suite result: FAILED. 0 passed; 1 failed; 0 skipped; [ELAPSED]
+
+Ran 1 test suite [ELAPSED]: 0 tests passed, 1 failed, 0 skipped (1 total tests)
+
+Failing tests:
+Encountered 1 failing test in test/InvariantFailOnAssertFoundry.t.sol:InvariantFailOnAssertFoundry
+[FAIL: Assertion: assertion failed in foundryAssertTrue]
+	[SEQUENCE]
+ [SUMMARY]
 
 Encountered a total of 1 failing tests, 0 tests succeeded
 

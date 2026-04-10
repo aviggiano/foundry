@@ -551,6 +551,7 @@ impl Executor {
         if let Some(cheats) = self.inspector_mut().cheatcodes.as_mut() {
             // Clear broadcastable transactions
             cheats.broadcastable_transactions.clear();
+            cheats.assertion_failure = false;
             cheats.ignored_traces.ignored.clear();
 
             // if tracing was paused but never unpaused, we should begin next frame with tracing
@@ -861,6 +862,8 @@ pub struct RawCallResult {
     pub exit_reason: Option<InstructionResult>,
     /// Whether the call reverted or not
     pub reverted: bool,
+    /// Whether a Foundry assertion helper failed during the call.
+    pub has_assertion_failure: bool,
     /// Whether the call includes a snapshot failure
     ///
     /// This is tracked separately from revert because a snapshot failure can occur without a
@@ -904,6 +907,7 @@ impl Default for RawCallResult {
         Self {
             exit_reason: None,
             reverted: false,
+            has_assertion_failure: false,
             has_state_snapshot_failure: false,
             result: Bytes::new(),
             gas_used: 0,
@@ -960,15 +964,17 @@ impl RawCallResult {
         }
     }
 
-    /// Returns `true` if this call result represents a Solidity assertion failure.
+    /// Returns `true` if this call result represents an assertion failure.
     ///
-    /// Detects two forms:
+    /// Detects three forms:
     /// - `Panic(0x01)` (Solidity >=0.8 `assert()`)
     /// - `InvalidFEOpcode` (legacy Solidity <0.8 `assert()`)
+    /// - Foundry assertion helpers like `assertTrue` / `assertEq`
     pub fn is_assert_failure(&self) -> bool {
         const PANIC_SELECTOR: [u8; 4] = [0x4e, 0x48, 0x7b, 0x71];
 
-        self.exit_reason == Some(InstructionResult::InvalidFEOpcode)
+        self.has_assertion_failure
+            || self.exit_reason == Some(InstructionResult::InvalidFEOpcode)
             || (self.result.len() == 36
                 && self.result[..4] == PANIC_SELECTOR
                 && self.result[4..35].iter().all(|&b| b == 0)
@@ -1116,10 +1122,12 @@ fn convert_executed_result(
         .as_ref()
         .map(|c| c.broadcastable_transactions.clone())
         .filter(|txs| !txs.is_empty());
+    let has_assertion_failure = cheatcodes.as_ref().is_some_and(|cheats| cheats.assertion_failure);
 
     Ok(RawCallResult {
         exit_reason: Some(exit_reason),
         reverted: !matches!(exit_reason, return_ok!()),
+        has_assertion_failure,
         has_state_snapshot_failure,
         result,
         gas_used,

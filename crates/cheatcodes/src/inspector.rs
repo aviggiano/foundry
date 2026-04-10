@@ -548,6 +548,9 @@ pub struct Cheatcodes {
     /// Additional, user configurable context this Inspector has access to when inspecting a call.
     pub config: Arc<CheatsConfig>,
 
+    /// Whether a Foundry assertion helper failed during the current call.
+    pub assertion_failure: bool,
+
     /// Test-scoped context holding data that needs to be reset every test run
     pub test_context: TestContext,
 
@@ -642,6 +645,7 @@ impl Cheatcodes {
             broadcast: Default::default(),
             broadcastable_transactions: Default::default(),
             access_list: Default::default(),
+            assertion_failure: Default::default(),
             test_context: Default::default(),
             serialized_jsons: Default::default(),
             eth_deals: Default::default(),
