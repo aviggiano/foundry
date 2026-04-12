@@ -98,6 +98,10 @@ inherits = "release"
 lto = "fat"
 codegen-units = 1
 
+# scfuzzbench builds custom Foundry forks with `--profile maxperf`.
+[profile.maxperf]
+inherits = "dist"
+
 # Speed up tests and dev build.
 [profile.dev.package]
 # Solc and artifacts.
